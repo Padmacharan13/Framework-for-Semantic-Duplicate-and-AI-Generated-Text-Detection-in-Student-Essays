@@ -1,6 +1,6 @@
 # ============================================================
 # Duplicate Assignment & Essay Detection via Semantic Similarity
-# Full project requirements (Weeks 1-4)
+# Requirements — Weeks 1-2 (this checkpoint) + placeholders for 3-4
 # Python 3.10+ recommended
 # ============================================================
 
@@ -8,37 +8,34 @@
 pandas>=2.2.0
 numpy>=1.26.0
 tqdm>=4.66.0
+pyarrow>=15.0.0
 
-# --- Hugging Face dataset loading (replaces local MSRP/QQP downloads) ---
-datasets>=2.19.0
+# --- Hugging Face dataset loading ---
+datasets>=2.20.0
+huggingface_hub>=0.24.0
 
 # --- NLP preprocessing ---
 spacy>=3.7.0
-nltk>=3.8.1
 
-# --- Week 2: Embeddings + retrieval ---
+# --- Week 2: Embeddings + retrieval + baseline ---
 sentence-transformers>=3.0.0
 faiss-cpu>=1.8.0
 scikit-learn>=1.4.0
 
-# --- Week 3: AI-text signal + transformer utilities ---
+# --- Results / demo ---
+matplotlib>=3.8.0
+
+# --- Week 3-4 (not needed yet, kept here so requirements.txt stays complete) ---
 torch>=2.2.0
 transformers>=4.40.0
-
-# --- Week 4: Demo UI ---
 streamlit>=1.35.0
-
-# --- Utilities ---
-python-dotenv>=1.0.0
-pyyaml>=6.0.1
 
 # ============================================================
 # One-time setup after `pip install -r requirements.txt`:
 #
 #   python -m spacy download en_core_web_sm
-#   python -m nltk.downloader punkt punkt_tab
 #
 # GPU users: replace the torch line above with the CUDA build
 # from https://pytorch.org/get-started/locally/ for faster
-# embedding + perplexity computation in Weeks 2-3.
+# embedding computation.
 # ============================================================

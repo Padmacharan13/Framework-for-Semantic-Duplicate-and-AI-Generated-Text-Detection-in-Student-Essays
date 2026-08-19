@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Semantic Duplicate & Paraphrase Detection Studio</title>
+    <meta name="description" content="Professional Deep Learning Paraphrase & Duplicate Text Detection Studio powered by SBERT and spaCy.">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <!-- FontAwesome icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <!-- Main CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+    <!-- Header Navigation -->
+    <header class="app-header">
+        <div class="header-container">
+            <div class="brand">
+                <div class="brand-logo">
+                    <i class="fa-solid fa-brain-circuit"></i>
+                </div>
+                <div class="brand-text">
+                    <h1>VeriText <span>AI</span></h1>
+                    <p class="subtitle">Semantic Duplicate & Paraphrase Analytics</p>
+                </div>
+            </div>
+
+            <div class="header-actions">
+                <div class="preset-selector-wrapper">
+                    <label for="presetSelect"><i class="fa-solid fa-folder-open"></i> Sample Essays:</label>
+                    <select id="presetSelect" class="preset-dropdown">
+                        <option value="" disabled selected>-- Select a Preset --</option>
+                        <option value="paraphrased_essay">Academic Paraphrasing (Heavy Rewrite)</option>
+                        <option value="verbatim_copy">Direct Verbatim Plagiarism</option>
+                        <option value="unrelated_topics">Unrelated Topics (Low Similarity)</option>
+                        <option value="technical_rewrite">Technical Documentation Rewrite</option>
+                    </select>
+                </div>
+
+                <div class="system-status" id="systemStatus" title="SBERT & spaCy Engine Ready">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Engine Ready</span>
+                </div>
+
+                <button class="theme-toggle-btn" id="themeToggle" title="Toggle Light/Dark Theme">
+                    <i class="fa-solid fa-moon"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="main-content">
+        <!-- Hero Section -->
+        <section class="hero-banner">
+            <div class="hero-content">
+                <h2>Dual-Document Paraphrase & Duplicate Analysis</h2>
+                <p>Paste or upload two student essays to run deep SBERT sentence embedding alignment, lexical overlap scoring, and multi-tier plagiarism detection.</p>
+            </div>
+        </section>
+
+        <!-- Input Editor Section -->
+        <section class="editor-section">
+            <div class="editor-grid">
+                
+                <!-- Document A Panel -->
+                <div class="editor-card" id="cardDocA">
+                    <div class="editor-card-header">
+                        <div class="card-title">
+                            <span class="doc-badge doc-badge-a">DOC A</span>
+                            <h3>Document A <span>(Reference Text)</span></h3>
+                        </div>
+                        <div class="editor-toolbar">
+                            <label class="file-upload-btn" title="Upload text file">
+                                <i class="fa-solid fa-file-arrow-up"></i> Upload
+                                <input type="file" id="fileInputA" accept=".txt,.md,.doc,.docx,.pdf">
+                            </label>
+                            <button type="button" class="tool-btn" id="clearBtnA" title="Clear Document A">
+                                <i class="fa-solid fa-eraser"></i> Clear
+                            </button>
+                        </div>
+                    </div>
+                    <div class="editor-body">
+                        <textarea id="textDocA" placeholder="Paste or type Document A text here..." spellcheck="false"></textarea>
+                    </div>
+                    <div class="editor-footer">
+                        <span id="statsDocA"><i class="fa-solid fa-font"></i> 0 words | 0 chars</span>
+                        <span class="drop-hint"><i class="fa-solid fa-cloud-arrow-up"></i> Drag & drop file</span>
+                    </div>
+                </div>
+
+                <!-- Swap & Controls Column -->
+                <div class="controls-divider">
+                    <button type="button" class="swap-btn" id="swapDocsBtn" title="Swap Document A and B">
+                        <i class="fa-solid fa-arrow-right-arrow-left"></i>
+                    </button>
+                </div>
+
+                <!-- Document B Panel -->
+                <div class="editor-card" id="cardDocB">
+                    <div class="editor-card-header">
+                        <div class="card-title">
+                            <span class="doc-badge doc-badge-b">DOC B</span>
+                            <h3>Document B <span>(Target Text)</span></h3>
+                        </div>
+                        <div class="editor-toolbar">
+                            <label class="file-upload-btn" title="Upload text file">
+                                <i class="fa-solid fa-file-arrow-up"></i> Upload
+                                <input type="file" id="fileInputB" accept=".txt,.md,.doc,.docx,.pdf">
+                            </label>
+                            <button type="button" class="tool-btn" id="clearBtnB" title="Clear Document B">
+                                <i class="fa-solid fa-eraser"></i> Clear
+                            </button>
+                        </div>
+                    </div>
+                    <div class="editor-body">
+                        <textarea id="textDocB" placeholder="Paste or type Document B text here..." spellcheck="false"></textarea>
+                    </div>
+                    <div class="editor-footer">
+                        <span id="statsDocB"><i class="fa-solid fa-font"></i> 0 words | 0 chars</span>
+                        <span class="drop-hint"><i class="fa-solid fa-cloud-arrow-up"></i> Drag & drop file</span>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Analysis Action Bar -->
+            <div class="action-bar">
+                <div class="model-selector-group">
+                    <label for="modelSelect"><i class="fa-solid fa-microchip"></i> Model Engine:</label>
+                    <select id="modelSelect" class="model-dropdown">
+                        <option value="sbert" selected>SBERT (Optimized MPNet - 110M)</option>
+                        <option value="word2vec">Word2Vec (Dense Word Vector)</option>
+                        <option value="tfidf">TF-IDF (Lexical Baseline)</option>
+                    </select>
+                </div>
+
+                <div class="threshold-slider-group">
+                    <label for="thresholdRange">
+                        <i class="fa-solid fa-sliders"></i> Sensitivity Threshold: 
+                        <strong id="thresholdVal">0.55</strong>
+                    </label>
+                    <input type="range" id="thresholdRange" min="0.30" max="0.85" step="0.05" value="0.55">
+                </div>
+
+                <div class="action-buttons">
+                    <button type="button" class="btn btn-secondary" id="resetBtn">
+                        <i class="fa-solid fa-rotate-left"></i> Reset
+                    </button>
+                    <button type="button" class="btn btn-primary" id="analyzeBtn">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i>
+                        <span>Analyze Documents</span>
+                        <div class="spinner" id="analyzeSpinner"></div>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Empty State Placeholder -->
+        <section class="placeholder-section" id="resultsPlaceholder">
+            <div class="placeholder-card">
+                <i class="fa-solid fa-microscope placeholder-icon"></i>
+                <h3>Ready to Analyze Documents</h3>
+                <p>Select a sample preset above or paste two documents into the editors, then click <strong>Analyze Documents</strong> to generate sentence alignment and paraphrase tier breakdown.</p>
+            </div>
+        </section>
+
+        <!-- Results Dashboard Section -->
+        <section class="results-section hidden" id="resultsSection">
+            
+            <!-- Verdict Banner -->
+            <div class="verdict-banner" id="verdictBanner">
+                <div class="verdict-icon" id="verdictIcon">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                </div>
+                <div class="verdict-info">
+                    <h3 id="verdictTitle">FLAGGED — Suspected Duplicate / Heavy Paraphrase</h3>
+                    <p id="verdictDesc">Significant semantic alignment detected across multiple passages in Document A and Document B.</p>
+                </div>
+                <div class="verdict-badge" id="verdictBadge">FLAGGED</div>
+            </div>
+
+            <!-- Metrics Summary Cards -->
+            <div class="metrics-grid">
+                <!-- Overall Score -->
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span>Overall Semantic Score</span>
+                        <i class="fa-solid fa-chart-line metric-icon"></i>
+                    </div>
+                    <div class="metric-body">
+                        <div class="score-ring-wrapper">
+                            <svg class="score-ring" viewBox="0 0 100 100">
+                                <circle class="ring-bg" cx="50" cy="50" r="42"></circle>
+                                <circle class="ring-fill" id="scoreRingFill" cx="50" cy="50" r="42" stroke-dasharray="264" stroke-dashoffset="264"></circle>
+                            </svg>
+                            <span class="score-value" id="metricOverallScore">0%</span>
+                        </div>
+                    </div>
+                    <div class="metric-footer">Mean SBERT vector similarity</div>
+                </div>
+
+                <!-- Matched Ratio -->
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span>Matched Sentence Ratio</span>
+                        <i class="fa-solid fa-align-left metric-icon"></i>
+                    </div>
+                    <div class="metric-body">
+                        <div class="metric-number-wrapper">
+                            <h2 class="metric-number" id="metricMatchedRatio">0%</h2>
+                            <div class="progress-bar-bg">
+                                <div class="progress-bar-fill" id="progressMatchedRatio" style="width: 0%;"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="metric-footer" id="metricSentenceCounts">0 of 0 sentences matched</div>
+                </div>
+
+                <!-- Alignment Counts -->
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span>Alignments Found</span>
+                        <i class="fa-solid fa-diagram-project metric-icon"></i>
+                    </div>
+                    <div class="metric-body">
+                        <h2 class="metric-number" id="metricAlignmentsCount">0</h2>
+                        <span class="metric-subtext">Sentences paired above threshold</span>
+                    </div>
+                    <div class="metric-footer">Threshold cutoff: <span id="metricThresholdVal">0.55</span></div>
+                </div>
+
+                <!-- Risk Tier Summary -->
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span>Highest Intensity Tier</span>
+                        <i class="fa-solid fa-shield-cat metric-icon"></i>
+                    </div>
+                    <div class="metric-body">
+                        <div class="top-tier-badge" id="metricTopTier">Verbatim</div>
+                    </div>
+                    <div class="metric-footer" id="metricTopTierDesc">Direct copying detected</div>
+                </div>
+            </div>
+
+            <!-- Paraphrase Intensity Tier Breakdown -->
+            <div class="section-card">
+                <div class="section-card-header">
+                    <h3><i class="fa-solid fa-layer-group"></i> Paraphrase Intensity Tier Breakdown</h3>
+                    <p class="subtitle">Click tier chips below to filter passage highlighting & matrix table</p>
+                </div>
+                <div class="section-card-body">
+                    <div class="tier-cards-grid">
+                        
+                        <div class="tier-card tier-verbatim active" data-tier="verbatim" id="tierFilterVerbatim">
+                            <div class="tier-indicator"></div>
+                            <div class="tier-info">
+                                <h4>Verbatim Copy</h4>
+                                <span class="tier-desc">Near-identical word match</span>
+                            </div>
+                            <div class="tier-count" id="countVerbatim">0</div>
+                        </div>
+
+                        <div class="tier-card tier-light active" data-tier="light_paraphrase" id="tierFilterLight">
+                            <div class="tier-indicator"></div>
+                            <div class="tier-info">
+                                <h4>Light Paraphrase</h4>
+                                <span class="tier-desc">Synonym substitution</span>
+                            </div>
+                            <div class="tier-count" id="countLight">0</div>
+                        </div>
+
+                        <div class="tier-card tier-heavy active" data-tier="heavy_paraphrase" id="tierFilterHeavy">
+                            <div class="tier-indicator"></div>
+                            <div class="tier-info">
+                                <h4>Heavy Paraphrase</h4>
+                                <span class="tier-desc">Syntactic & structural rewrite</span>
+                            </div>
+                            <div class="tier-count" id="countHeavy">0</div>
+                        </div>
+
+                        <div class="tier-card tier-structural active" data-tier="structural_rewrite" id="tierFilterStructural">
+                            <div class="tier-indicator"></div>
+                            <div class="tier-info">
+                                <h4>Structural Rewrite</h4>
+                                <span class="tier-desc">Conceptual alignment</span>
+                            </div>
+                            <div class="tier-count" id="countStructural">0</div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+            <!-- Side-by-Side Highlighted Document Passage Viewer -->
+            <div class="section-card">
+                <div class="section-card-header flex-header">
+                    <div>
+                        <h3><i class="fa-solid fa-highlighter"></i> Interactive Side-by-Side Passage Highlighter</h3>
+                        <p class="subtitle">Click any highlighted sentence in Document A to auto-scroll and highlight its matched counterpart in Document B</p>
+                    </div>
+                    <div class="viewer-actions">
+                        <button type="button" class="btn btn-sm btn-outline" id="clearHighlightBtn">
+                            <i class="fa-solid fa-eye-slash"></i> Clear Highlight Selection
+                        </button>
+                    </div>
+                </div>
+                <div class="section-card-body">
+                    <div class="highlighter-grid">
+                        
+                        <!-- Doc A Highlighter Panel -->
+                        <div class="highlighter-panel">
+                            <div class="panel-header">
+                                <span class="doc-badge doc-badge-a">DOC A</span>
+                                <h4>Document A Annotated Passages</h4>
+                            </div>
+                            <div class="panel-body highlighted-text-box" id="highlighterDocA">
+                                <!-- Sentences dynamically injected -->
+                            </div>
+                        </div>
+
+                        <!-- Doc B Highlighter Panel -->
+                        <div class="highlighter-panel">
+                            <div class="panel-header">
+                                <span class="doc-badge doc-badge-b">DOC B</span>
+                                <h4>Document B Annotated Passages</h4>
+                            </div>
+                            <div class="panel-body highlighted-text-box" id="highlighterDocB">
+                                <!-- Sentences dynamically injected -->
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+            <!-- Detailed Sentence Alignment Matrix Table -->
+            <div class="section-card">
+                <div class="section-card-header flex-header">
+                    <div>
+                        <h3><i class="fa-solid fa-table-list"></i> Sentence-Level Passage Alignment Matrix</h3>
+                        <p class="subtitle">Detailed SBERT cosine similarity and lexical overlap breakdown for each matched passage</p>
+                    </div>
+                    <div class="table-search-wrapper">
+                        <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                        <input type="text" id="tableSearch" placeholder="Search sentence matches...">
+                    </div>
+                </div>
+                <div class="section-card-body">
+                    <div class="table-responsive">
+                        <table class="alignment-table" id="alignmentTable">
+                            <thead>
+                                <tr>
+                                    <th style="width: 50px;">#</th>
+                                    <th>Document A Sentence</th>
+                                    <th>Document B Matched Sentence</th>
+                                    <th style="width: 120px;">Semantic Sim.</th>
+                                    <th style="width: 110px;">Lexical Sim.</th>
+                                    <th style="width: 150px;">Paraphrase Tier</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tableBody">
+                                <!-- Dynamic rows -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Export Toolbar -->
+            <div class="export-toolbar">
+                <button type="button" class="btn btn-secondary" id="exportJsonBtn">
+                    <i class="fa-solid fa-file-code"></i> Export Raw JSON Data
+                </button>
+                <button type="button" class="btn btn-primary" id="printReportBtn">
+                    <i class="fa-solid fa-print"></i> Print / Save PDF Report
+                </button>
+            </div>
+
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+        <div class="footer-container">
+            <p>Framework for Semantic Duplicate and AI-Generated Text Detection in Student Essays &copy; 2026</p>
+            <p class="tech-stack">Powered by <span>Sentence-Transformers (all-MiniLM-L6-v2)</span> &amp; <span>spaCy (en_core_web_sm)</span></p>
+        </div>
+    </footer>
+
+    <!-- App JavaScript -->
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

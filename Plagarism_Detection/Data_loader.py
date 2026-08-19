@@ -1,17 +1,7 @@
 """
 data_loader.py
-Loads MSRP and QQP DIRECTLY from the Hugging Face Hub (via `datasets`) into
-a standardized schema - no manual downloads, no local raw files needed.
-
-Standardized schema for both:
-
-    id | text_a | text_b | label | source
-
-label: 1 = paraphrase/duplicate, 0 = not
-source: "msrp" or "qqp"
-
-First call will download and cache the dataset under ~/.cache/huggingface
-(only happens once - subsequent runs load from local cache, no network).
+Loads MSRP and QQP directly from the Hugging Face Hub into a standardized
+schema:  id | text_a | text_b | label | source
 """
 
 from __future__ import annotations
@@ -36,23 +26,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# MSRP  (Hugging Face: glue/mrpc)
-# ---------------------------------------------------------------------------
-
 def load_msrp() -> pd.DataFrame:
-    """
-    Pulls GLUE MRPC (the Hugging Face hosted version of MSRP) directly from
-    the Hub and concatenates train+validation+test into one DataFrame.
-    """
-    logger.info("Loading MSRP (glue/mrpc) from Hugging Face Hub...")
-    splits = []
-    for split in HF_MSRP_SPLITS:
-        ds = load_dataset(HF_MSRP_DATASET, HF_MSRP_CONFIG, split=split)
-        splits.append(ds)
-    full = concatenate_datasets(splits)
-
-    df = full.to_pandas()
+    logger.info("Loading MSRP (nyu-mll/glue, mrpc) from Hugging Face Hub...")
+    splits = [load_dataset(HF_MSRP_DATASET, HF_MSRP_CONFIG, split=s) for s in HF_MSRP_SPLITS]
+    df = concatenate_datasets(splits).to_pandas()
     standardized = pd.DataFrame({
         "id": df.index.astype(str).map(lambda i: f"msrp_{i}"),
         "text_a": df["sentence1"].astype(str),
@@ -65,26 +42,11 @@ def load_msrp() -> pd.DataFrame:
     return standardized
 
 
-# ---------------------------------------------------------------------------
-# QQP  (Hugging Face: glue/qqp)
-# ---------------------------------------------------------------------------
-
 def load_qqp(sample_size: int | None = QQP_SAMPLE_SIZE) -> pd.DataFrame:
-    """
-    Pulls GLUE QQP directly from the Hub. Only train+validation are used
-    since GLUE's official qqp "test" split ships without labels (label=-1,
-    reserved for the leaderboard). Subsamples for dev speed since QQP has
-    400k+ rows in the train split alone.
-    """
-    logger.info("Loading QQP (glue/qqp) from Hugging Face Hub...")
-    splits = []
-    for split in HF_QQP_SPLITS:
-        ds = load_dataset(HF_QQP_DATASET, HF_QQP_CONFIG, split=split)
-        splits.append(ds)
-    full = concatenate_datasets(splits)
-
-    df = full.to_pandas()
-    df = df[df["label"].isin([0, 1])]  # safety: drop any unlabeled rows
+    logger.info("Loading QQP (nyu-mll/glue, qqp) from Hugging Face Hub...")
+    splits = [load_dataset(HF_QQP_DATASET, HF_QQP_CONFIG, split=s) for s in HF_QQP_SPLITS]
+    df = concatenate_datasets(splits).to_pandas()
+    df = df[df["label"].isin([0, 1])]
     df = df.dropna(subset=["question1", "question2", "label"])
 
     if sample_size is not None and len(df) > sample_size:
@@ -101,14 +63,8 @@ def load_qqp(sample_size: int | None = QQP_SAMPLE_SIZE) -> pd.DataFrame:
     return standardized
 
 
-# ---------------------------------------------------------------------------
-# Combined loader
-# ---------------------------------------------------------------------------
-
 def load_all_benchmark_data() -> pd.DataFrame:
-    """Loads and concatenates MSRP + QQP into one standardized DataFrame."""
-    dfs = [load_msrp(), load_qqp()]
-    combined = pd.concat(dfs, ignore_index=True)
+    combined = pd.concat([load_msrp(), load_qqp()], ignore_index=True)
     logger.info("Combined benchmark dataset: %d total pairs", len(combined))
     return combined
 

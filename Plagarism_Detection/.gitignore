@@ -1,69 +1,43 @@
+# ============================================================
+# Git Ignore Rules — Plagiarism & Paraphrase Detection System
+# ============================================================
+
+# --- Virtual Environments ---
 .venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# --- Sensitive Environment & Secret Files ---
+.env
+.env.local
+.env.*.local
+*.env
+*.pem
+*.key
+secrets.json
+config.secret.py
+sensitive/
+*sensitive*
+
+# --- Python Bytecode & Cache ---
 __pycache__/
 *.py[cod]
-*.pyo
-*.pyd
-.Python
-env/
-venv/
-ENV/
-ENV.bak/
-pip-log.txt
-pip-delete-this-directory.txt
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
+*$py.class
 .pytest_cache/
-.pytest_cache/*
-*.mo
-*.pot
-*.log
-*.sql
-*.sqlite
-*.sqlite3
-.DS_Store
-*.swp
-*~
+.coverage
+htmlcov/
+
+# --- Model Binaries & Heavy Data Artifacts ---
+*.model
+*.model.wv.*
+*.parquet
+.huggingface/
+
+# --- IDEs & OS System Files ---
+.vscode/
 .idea/
-.vscode/
-*.env
-*.env.*
-.envrc
-secret*
-credentials*
-*.pem
-*.key
-*.crt
-*.p12
-*.jks
-
-# Jupyter Notebook checkpoints
-.ipynb_checkpoints/
-
-# OS generated files
+.DS_Store
 Thumbs.db
-Desktop.ini
-
-# VS Code
-.vscode/
-
-# Python bytecode
-*.pyc
-
-# Sensitive project files
-*.pem
-*.key
-*.crt
-*.p12
-*.jks
-*.sqlite3
-*.db
-*.db-journal
