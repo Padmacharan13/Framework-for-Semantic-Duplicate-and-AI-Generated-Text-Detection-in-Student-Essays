@@ -89,8 +89,16 @@ def run_webapp() -> None:
     app.run(host=WEB_HOST, port=WEB_PORT, debug=False)
 
 
+def run_streamlit() -> None:
+    import subprocess
+    logger.info("Launching Streamlit Instructor Dashboard...")
+    subprocess.run([sys.executable, "-m", "streamlit", "run", "dashboard.py"])
+
+
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "--cli":
+    if len(sys.argv) > 1 and sys.argv[1] in ["--cli", "-c"]:
         run_cli()
+    elif len(sys.argv) > 1 and sys.argv[1] in ["--streamlit", "-s", "--dashboard"]:
+        run_streamlit()
     else:
         run_webapp()

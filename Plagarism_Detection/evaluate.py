@@ -1,124 +1,117 @@
-"""
-evaluate.py
-Benchmarks 3 models for duplicate/paraphrase detection on MSRP+QQP:
-  1. TF-IDF Cosine Similarity (Lexical Baseline)
-  2. Word2Vec Dense Averaged Embeddings (Dense Word Vector Baseline)
-  3. SBERT (Optimized MPNet Transformer) (Proposed Contextual Model)
-
-For each model: sweeps similarity thresholds, picks the threshold maximizing F1,
-and computes Precision, Recall, F1, and Accuracy.
-
-Outputs:
-  - results/evaluation_results.csv   (3-model metrics summary)
-  - results/model_comparison_f1.png  (3-bar comparison chart)
-
-Run:
-    python evaluate.py
-"""
-
-from __future__ import annotations
-
-import logging
-
-import matplotlib
-matplotlib.use("Agg")  # headless-safe backend, no display needed
-import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
-from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score, roc_auc_score
+from config import MSRP_PROCESSED_PATH, QQP_PROCESSED_PATH, EVAL_RESULTS_CSV, EVAL_PLOT_PNG
+from similarity_engine import SimilarityBenchmarkEngine
 
-from config import EVAL_PLOT_FILE, EVAL_RESULTS_CSV
-from data_loader import load_all_benchmark_data
-from embeddings import Embedder
-from similarity_engine import sbert_pair_similarity, tfidf_pair_similarity, word2vec_pair_similarity
-from word2vec_engine import Word2VecEmbedder
+def optimize_threshold(y_true: np.ndarray, scores: np.ndarray) -> float:
+    best_thresh, best_f1 = 0.5, -1.0
+    for t in np.arange(0.05, 0.95, 0.005):
+        pred = (scores >= t).astype(int)
+        score = f1_score(y_true, pred, zero_division=0)
+        if score > best_f1:
+            best_f1, best_thresh = score, t
+    return best_thresh
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
-logger = logging.getLogger(__name__)
+def evaluate_predictions(y_true: np.ndarray, scores: np.ndarray, threshold: float) -> dict:
+    preds = (scores >= threshold).astype(int)
+    return {
+        "Threshold": round(threshold, 3),
+        "Accuracy": round(accuracy_score(y_true, preds), 4),
+        "Precision": round(precision_score(y_true, preds, zero_division=0), 4),
+        "Recall": round(recall_score(y_true, preds, zero_division=0), 4),
+        "F1-Score": round(f1_score(y_true, preds, zero_division=0), 4),
+        "ROC-AUC": round(roc_auc_score(y_true, scores), 4)
+    }
 
+def main():
+    print("[1/4] Loading Validation and Test sets...")
+    has_split = False
+    val_dfs, test_dfs = [], []
+    
+    for path in [MSRP_PROCESSED_PATH, QQP_PROCESSED_PATH]:
+        if path.exists():
+            df = pd.read_parquet(path)
+            if "split" in df.columns:
+                has_split = True
+                val_dfs.append(df[df["split"] == "validation"])
+                test_dfs.append(df[df["split"] == "test"])
 
-def best_threshold_metrics(scores: np.ndarray, labels: np.ndarray) -> dict:
-    """Sweeps thresholds 0.05-0.95 and returns metrics at the F1-maximizing cutoff."""
-    best = {"threshold": 0.5, "f1": -1.0, "precision": 0.0, "recall": 0.0, "accuracy": 0.0}
-    for t in np.arange(0.05, 0.96, 0.01):
-        preds = (scores >= t).astype(int)
-        f1 = f1_score(labels, preds, zero_division=0)
-        if f1 > best["f1"]:
-            best = {
-                "threshold": round(float(t), 2),
-                "f1": round(float(f1), 4),
-                "precision": round(float(precision_score(labels, preds, zero_division=0)), 4),
-                "recall": round(float(recall_score(labels, preds, zero_division=0)), 4),
-                "accuracy": round(float(accuracy_score(labels, preds)), 4),
-            }
-    return best
+    if not has_split or len(val_dfs) == 0:
+        print("  -> Loading fresh splits directly via data_loader...")
+        from data_loader import load_msrp, load_qqp
+        msrp_df = load_msrp()
+        qqp_df = load_qqp()
+        val_df = pd.concat([msrp_df[msrp_df["split"] == "validation"], qqp_df[qqp_df["split"] == "validation"]], ignore_index=True)
+        test_df = pd.concat([msrp_df[msrp_df["split"] == "test"], qqp_df[qqp_df["split"] == "test"]], ignore_index=True)
+    else:
+        val_df = pd.concat(val_dfs, ignore_index=True)
+        test_df = pd.concat(test_dfs, ignore_index=True)
 
+    print(f"  -> Validation pairs: {len(val_df)}, Test pairs: {len(test_df)}")
 
-def run() -> None:
-    df = load_all_benchmark_data()
-    text_a = df["text_a"].tolist()
-    text_b = df["text_b"].tolist()
-    labels = df["label"].to_numpy()
+    col1_v = "text1" if "text1" in val_df.columns else "text_a"
+    col2_v = "text2" if "text2" in val_df.columns else "text_b"
+    col1_t = "text1" if "text1" in test_df.columns else "text_a"
+    col2_t = "text2" if "text2" in test_df.columns else "text_b"
 
-    logger.info("1/3 Scoring %d pairs with TF-IDF baseline...", len(df))
-    tfidf_scores = tfidf_pair_similarity(text_a, text_b)
+    print("[2/4] Initializing Benchmark Engine (TF-IDF, Word2Vec, Hybrid SBERT, Cross-Encoder)...")
+    engine = SimilarityBenchmarkEngine()
+    engine.fit_tfidf(val_df[col1_v].tolist() + val_df[col2_v].tolist())
 
-    logger.info("2/3 Scoring %d pairs with Word2Vec dense embedding model...", len(df))
-    all_texts = text_a + text_b
-    w2v_embedder = Word2VecEmbedder(train_corpus=all_texts)
-    w2v_scores = word2vec_pair_similarity(w2v_embedder, text_a, text_b)
+    models = {
+        "TF-IDF": (engine.compute_tfidf_similarity, "Baseline 1"),
+        "Word2Vec": (engine.compute_w2v_similarity, "Baseline 2"),
+        "Hybrid SBERT": (engine.compute_hybrid_similarity, "Proposed Model"),
+        "Cross-Encoder": (engine.compute_cross_encoder_similarity, "2-Stage Re-ranker")
+    }
 
-    logger.info("3/3 Scoring %d pairs with Optimized SBERT (MPNet)...", len(df))
-    sbert_embedder = Embedder()
-    sbert_scores = sbert_pair_similarity(sbert_embedder, text_a, text_b)
+    results = []
+    print("[3/4] Tuning thresholds on Validation Split & Evaluating on Held-Out Test Split...")
+    for model_name, (scorer, model_type) in models.items():
+        try:
+            print(f"\n--- Evaluating {model_name} ({model_type}) ---")
+            val_scores = scorer(val_df[col1_v].tolist(), val_df[col2_v].tolist())
+            val_scores = np.clip(np.nan_to_num(val_scores, nan=0.0), 0.0, 1.0)
+            best_t = optimize_threshold(val_df["label"].to_numpy(), val_scores)
 
-    logger.info("Sweeping thresholds and calculating performance metrics...")
-    tfidf_metrics = best_threshold_metrics(tfidf_scores, labels)
-    w2v_metrics = best_threshold_metrics(w2v_scores, labels)
-    sbert_metrics = best_threshold_metrics(sbert_scores, labels)
+            test_scores = scorer(test_df[col1_t].tolist(), test_df[col2_t].tolist())
+            test_scores = np.clip(np.nan_to_num(test_scores, nan=0.0), 0.0, 1.0)
+            metrics = evaluate_predictions(test_df["label"].to_numpy(), test_scores, best_t)
+            metrics["Model"] = model_name
+            metrics["Type"] = model_type
+            results.append(metrics)
+            print(f"  -> {model_name} evaluation complete. F1={metrics['F1-Score']:.4f}")
+        except Exception as e:
+            print(f"  -> WARNING: {model_name} evaluation failed: {e}")
+            results.append({
+                "Type": model_type,
+                "Model": model_name,
+                "Threshold": 0.0,
+                "Accuracy": 0.0,
+                "Precision": 0.0,
+                "Recall": 0.0,
+                "F1-Score": 0.0,
+                "ROC-AUC": 0.0,
+            })
 
-    results = pd.DataFrame([
-        {"method": "TF-IDF (Lexical Baseline)", **tfidf_metrics},
-        {"method": "Word2Vec (Dense Baseline)", **w2v_metrics},
-        {"method": "SBERT (Optimized MPNet)", **sbert_metrics},
-    ])
-    results.to_csv(EVAL_RESULTS_CSV, index=False)
-    logger.info("Saved 3-way evaluation metrics table -> %s", EVAL_RESULTS_CSV)
-    print("\n=== MODEL PERFORMANCE COMPARISON ===")
-    print(results.to_string(index=False))
+    res_df = pd.DataFrame(results)[["Type", "Model", "Threshold", "Accuracy", "Precision", "Recall", "F1-Score", "ROC-AUC"]]
+    res_df.to_csv(EVAL_RESULTS_CSV, index=False)
+    print("\n" + res_df.to_string(index=False) + "\n")
 
-    # ---- 3-Way Model Comparison Plot ----
-    fig, ax = plt.subplots(figsize=(9, 6))
-    metrics_to_plot = ["precision", "recall", "f1", "accuracy"]
-    x = np.arange(len(metrics_to_plot))
-    width = 0.25
-
-    tfidf_vals = [tfidf_metrics[m] for m in metrics_to_plot]
-    w2v_vals = [w2v_metrics[m] for m in metrics_to_plot]
-    sbert_vals = [sbert_metrics[m] for m in metrics_to_plot]
-
-    ax.bar(x - width, tfidf_vals, width, label="TF-IDF (Lexical Baseline)", color="#64748b")
-    ax.bar(x, w2v_vals, width, label="Word2Vec (Dense Baseline)", color="#f59e0b")
-    ax.bar(x + width, sbert_vals, width, label="SBERT (Optimized MPNet)", color="#6366f1")
-
-    ax.set_xticks(x)
-    ax.set_xticklabels([m.capitalize() for m in metrics_to_plot], fontweight="bold", fontsize=10)
-    ax.set_ylim(0, 1.05)
-    ax.set_ylabel("Score", fontweight="bold")
-    ax.set_title(f"Model Comparison on Benchmark Dataset (MSRP+QQP, n={len(df)})", fontweight="bold", fontsize=12)
-    ax.legend(loc="lower right")
-    ax.grid(axis="y", linestyle="--", alpha=0.4)
-
-    # Add value annotations above bars
-    for i in range(len(metrics_to_plot)):
-        ax.text(i - width, tfidf_vals[i] + 0.01, f"{tfidf_vals[i]:.2f}", ha="center", fontsize=8)
-        ax.text(i, w2v_vals[i] + 0.01, f"{w2v_vals[i]:.2f}", ha="center", fontsize=8)
-        ax.text(i + width, sbert_vals[i] + 0.01, f"{sbert_vals[i]:.2f}", ha="center", fontsize=8, fontweight="bold")
-
-    fig.tight_layout()
-    fig.savefig(EVAL_PLOT_FILE, dpi=150)
-    logger.info("Saved 3-way model comparison chart -> %s", EVAL_PLOT_FILE)
-
+    print(f"[4/4] Generating comparative visualization at {EVAL_PLOT_PNG}...")
+    plt.figure(figsize=(10, 5))
+    bars = plt.bar(res_df["Model"], res_df["F1-Score"], color=["#7f7f7f", "#1f77b4", "#2ca02c", "#d62728"], width=0.55)
+    plt.ylabel("F1 Score")
+    plt.title("Performance Comparison: Multi-Tier Model Architecture")
+    plt.ylim(0, 1.05)
+    for bar in bars:
+        yval = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width()/2.0, yval + 0.02, f"{yval:.4f}", ha='center', va='bottom', fontweight='bold')
+    plt.tight_layout()
+    plt.savefig(EVAL_PLOT_PNG, dpi=300)
+    print(f"Artifacts successfully saved to {EVAL_RESULTS_CSV} and {EVAL_PLOT_PNG}")
 
 if __name__ == "__main__":
-    run()
+    main()

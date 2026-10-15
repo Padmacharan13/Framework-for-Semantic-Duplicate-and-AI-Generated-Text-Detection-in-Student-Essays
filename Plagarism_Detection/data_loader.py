@@ -28,24 +28,35 @@ logger = logging.getLogger(__name__)
 
 def load_msrp() -> pd.DataFrame:
     logger.info("Loading MSRP (nyu-mll/glue, mrpc) from Hugging Face Hub...")
-    splits = [load_dataset(HF_MSRP_DATASET, HF_MSRP_CONFIG, split=s) for s in HF_MSRP_SPLITS]
-    df = concatenate_datasets(splits).to_pandas()
+    dfs = []
+    for s in HF_MSRP_SPLITS:
+        ds_df = load_dataset(HF_MSRP_DATASET, HF_MSRP_CONFIG, split=s).to_pandas()
+        ds_df["split"] = s
+        dfs.append(ds_df)
+    df = pd.concat(dfs, ignore_index=True)
     standardized = pd.DataFrame({
         "id": df.index.astype(str).map(lambda i: f"msrp_{i}"),
+        "split": df["split"].astype(str),
+        "text1": df["sentence1"].astype(str),
+        "text2": df["sentence2"].astype(str),
         "text_a": df["sentence1"].astype(str),
         "text_b": df["sentence2"].astype(str),
         "label": df["label"].astype(int),
         "source": "msrp",
     })
-    standardized = standardized.dropna(subset=["text_a", "text_b"]).reset_index(drop=True)
+    standardized = standardized.dropna(subset=["text1", "text2"]).reset_index(drop=True)
     logger.info("Loaded MSRP: %d pairs", len(standardized))
     return standardized
 
 
 def load_qqp(sample_size: int | None = QQP_SAMPLE_SIZE) -> pd.DataFrame:
     logger.info("Loading QQP (nyu-mll/glue, qqp) from Hugging Face Hub...")
-    splits = [load_dataset(HF_QQP_DATASET, HF_QQP_CONFIG, split=s) for s in HF_QQP_SPLITS]
-    df = concatenate_datasets(splits).to_pandas()
+    dfs = []
+    for s in HF_QQP_SPLITS:
+        ds_df = load_dataset(HF_QQP_DATASET, HF_QQP_CONFIG, split=s).to_pandas()
+        ds_df["split"] = s
+        dfs.append(ds_df)
+    df = pd.concat(dfs, ignore_index=True)
     df = df[df["label"].isin([0, 1])]
     df = df.dropna(subset=["question1", "question2", "label"])
 
@@ -54,6 +65,9 @@ def load_qqp(sample_size: int | None = QQP_SAMPLE_SIZE) -> pd.DataFrame:
 
     standardized = pd.DataFrame({
         "id": df.index.astype(str).map(lambda i: f"qqp_{i}"),
+        "split": df["split"].astype(str),
+        "text1": df["question1"].astype(str),
+        "text2": df["question2"].astype(str),
         "text_a": df["question1"].astype(str),
         "text_b": df["question2"].astype(str),
         "label": df["label"].astype(int),

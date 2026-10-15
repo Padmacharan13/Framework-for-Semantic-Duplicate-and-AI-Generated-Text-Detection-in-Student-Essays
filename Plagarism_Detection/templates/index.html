@@ -34,6 +34,7 @@
                     <label for="presetSelect"><i class="fa-solid fa-folder-open"></i> Sample Essays:</label>
                     <select id="presetSelect" class="preset-dropdown">
                         <option value="" disabled selected>-- Select a Preset --</option>
+                        <option value="renewable_benchmark">Renewable Energy Benchmark (5-Tier Test Suite)</option>
                         <option value="paraphrased_essay">Academic Paraphrasing (Heavy Rewrite)</option>
                         <option value="verbatim_copy">Direct Verbatim Plagiarism</option>
                         <option value="unrelated_topics">Unrelated Topics (Low Similarity)</option>
@@ -55,11 +56,22 @@
 
     <!-- Main Container -->
     <main class="main-content">
+        <!-- Navigation Tab Switcher -->
+        <div class="nav-tabs-bar">
+            <button type="button" class="tab-btn active" id="tabBtnPairwise" data-target="pairwiseView">
+                <i class="fa-solid fa-code-compare"></i> Pairwise Document Studio
+            </button>
+            <button type="button" class="tab-btn" id="tabBtnFaiss" data-target="faissView">
+                <i class="fa-solid fa-database"></i> FAISS Corpus Vector Search &amp; Re-ranking
+            </button>
+        </div>
+
+        <div id="pairwiseView" class="view-panel active">
         <!-- Hero Section -->
         <section class="hero-banner">
             <div class="hero-content">
-                <h2>Dual-Document Paraphrase & Duplicate Analysis</h2>
-                <p>Paste or upload two student essays to run deep SBERT sentence embedding alignment, lexical overlap scoring, and multi-tier plagiarism detection.</p>
+                <h2>Dual-Document Paraphrase &amp; Duplicate Analysis</h2>
+                <p>Compare two student essays with deep SBERT sentence embeddings, Cross-Encoder 2-stage re-ranking, and multi-tier plagiarism detection.</p>
             </div>
         </section>
 
@@ -133,7 +145,8 @@
                 <div class="model-selector-group">
                     <label for="modelSelect"><i class="fa-solid fa-microchip"></i> Model Engine:</label>
                     <select id="modelSelect" class="model-dropdown">
-                        <option value="sbert" selected>SBERT (Optimized MPNet - 110M)</option>
+                        <option value="cross_encoder" selected>⚡ 2-Stage: SBERT + Cross-Encoder (High Precision)</option>
+                        <option value="sbert">SBERT (Dense Bi-Encoder - 110M)</option>
                         <option value="word2vec">Word2Vec (Dense Word Vector)</option>
                         <option value="tfidf">TF-IDF (Lexical Baseline)</option>
                     </select>
@@ -358,9 +371,10 @@
                                     <th style="width: 50px;">#</th>
                                     <th>Document A Sentence</th>
                                     <th>Document B Matched Sentence</th>
-                                    <th style="width: 120px;">Semantic Sim.</th>
-                                    <th style="width: 110px;">Lexical Sim.</th>
-                                    <th style="width: 150px;">Paraphrase Tier</th>
+                                    <th style="width: 110px;">Bi-Encoder</th>
+                                    <th style="width: 110px;" id="thCrossEncoder">Cross-Encoder</th>
+                                    <th style="width: 100px;">Lexical</th>
+                                    <th style="width: 140px;">Paraphrase Tier</th>
                                 </tr>
                             </thead>
                             <tbody id="tableBody">
@@ -382,6 +396,106 @@
             </div>
 
         </section>
+        </div> <!-- end #pairwiseView -->
+
+        <!-- FAISS Vector Search & Corpus View Panel -->
+        <div id="faissView" class="view-panel" style="display: none;">
+            <section class="hero-banner faiss-banner">
+                <div class="hero-content">
+                    <h2><i class="fa-solid fa-bolt-lightning"></i> FAISS Corpus Vector Search &amp; Cross-Encoder Re-ranker</h2>
+                    <p>Retrieve candidate student essays at scale using dense 384-dimensional SBERT embeddings indexed in FAISS, followed by an optional 2nd-stage Cross-Encoder deep attention re-ranking pass.</p>
+                </div>
+            </section>
+
+            <!-- FAISS Search Box Section -->
+            <section class="editor-section">
+                <div class="editor-card">
+                    <div class="editor-card-header">
+                        <div class="card-title">
+                            <span class="doc-badge" style="background: var(--accent-indigo); color: #fff;">QUERY</span>
+                            <h3>Input Query Essay / Text Passage</h3>
+                        </div>
+                        <div class="editor-toolbar">
+                            <span class="toolbar-label"><i class="fa-solid fa-bolt"></i> Sample Prompts:</span>
+                            <button type="button" class="tool-btn sample-query-btn" data-query="Renewable energy sources like solar and wind power are becoming more affordable and will replace fossil fuels.">Solar &amp; Wind</button>
+                            <button type="button" class="tool-btn sample-query-btn" data-query="Academic integrity relies heavily on authentic submission of student essays, making automated similarity detection critical.">Academic Integrity</button>
+                            <button type="button" class="tool-btn sample-query-btn" data-query="Photosynthesis allows green plants to convert solar radiation into chemical carbohydrates and oxygen.">Photosynthesis</button>
+                        </div>
+                    </div>
+                    <div class="editor-body">
+                        <textarea id="faissQueryText" placeholder="Paste or type a student essay or passage to search against the indexed corpus..." rows="5" spellcheck="false"></textarea>
+                    </div>
+                    <div class="faiss-controls-bar">
+                        <div class="faiss-control-item">
+                            <label for="faissTopK"><i class="fa-solid fa-list-ol"></i> Top-K Candidates:</label>
+                            <select id="faissTopK" class="preset-dropdown" style="width: auto;">
+                                <option value="3">Top 3 Candidates</option>
+                                <option value="5" selected>Top 5 Candidates</option>
+                                <option value="8">Top 8 Candidates</option>
+                                <option value="10">All 10 Candidates</option>
+                            </select>
+                        </div>
+
+                        <div class="faiss-control-item">
+                            <label class="toggle-switch-label" for="faissRerankToggle">
+                                <input type="checkbox" id="faissRerankToggle" checked>
+                                <span class="toggle-slider"></span>
+                                <span><i class="fa-solid fa-filter-circle-dollar"></i> Cross-Encoder 2nd-Stage Re-ranking</span>
+                            </label>
+                        </div>
+
+                        <div class="action-buttons">
+                            <button type="button" class="btn btn-secondary" id="browseCorpusBtn">
+                                <i class="fa-solid fa-book-open"></i> Browse Indexed Corpus
+                            </button>
+                            <button type="button" class="btn btn-primary" id="faissSearchBtn">
+                                <i class="fa-solid fa-magnifying-glass"></i>
+                                <span>Search FAISS Corpus</span>
+                                <div class="spinner" id="faissSpinner"></div>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- FAISS Search Results Section -->
+            <section class="results-section hidden" id="faissResultsSection">
+                <div class="section-card">
+                    <div class="section-card-header flex-header">
+                        <div>
+                            <h3><i class="fa-solid fa-ranking-star"></i> Retrieved Candidate Essays</h3>
+                            <p class="subtitle" id="faissResultsSubtitle">Top candidates retrieved by FAISS vector similarity and Cross-Encoder re-ranker</p>
+                        </div>
+                        <div class="faiss-meta-badge" id="faissCorpusStatsBadge">
+                            <i class="fa-solid fa-database"></i> 10 Documents Indexed
+                        </div>
+                    </div>
+                    <div class="section-card-body">
+                        <div class="faiss-candidates-grid" id="faissCandidatesList">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Browse Corpus Drawer / Section -->
+            <section class="section-card hidden" id="corpusBrowseSection">
+                <div class="section-card-header flex-header">
+                    <div>
+                        <h3><i class="fa-solid fa-layer-group"></i> Indexed Student Corpus Library</h3>
+                        <p class="subtitle">All documents currently indexed in the active FAISS L2-normalized vector index</p>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline" id="closeCorpusBrowseBtn">
+                        <i class="fa-solid fa-xmark"></i> Close Library
+                    </button>
+                </div>
+                <div class="section-card-body">
+                    <div class="corpus-grid" id="corpusGrid">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
+            </section>
+        </div> <!-- end #faissView -->
     </main>
 
     <!-- Footer -->

@@ -24,11 +24,14 @@ scikit-learn>=1.4.0
 
 # --- Results / demo ---
 matplotlib>=3.8.0
+plotly>=5.18.0
 
 # --- Week 3-4 (not needed yet, kept here so requirements.txt stays complete) ---
 torch>=2.2.0
 transformers>=4.40.0
 streamlit>=1.35.0
+flask>=3.0.0
+gensim>=4.3.0
 
 # ============================================================
 # One-time setup after `pip install -r requirements.txt`:

@@ -93,8 +93,7 @@ class TextPreprocessor:
     def process_column(self, texts: Iterable[str]) -> list[ProcessedText]:
         """Efficiently process an entire column/list of raw texts in batched spaCy passes."""
         texts = list(texts)
-        cleaned_texts = [self.clean_text(t) for t in texts]
-        sentence_lists = self.segment_sentences_batch(cleaned_texts)
+        sentence_lists = self.segment_sentences_batch(texts)
 
         flat_sentences: list[str] = []
         doc_boundaries: list[tuple[int, int]] = []
@@ -105,14 +104,14 @@ class TextPreprocessor:
             cursor += len(sents)
             doc_boundaries.append((start, cursor))
 
-        flat_lemmas = self.lemmatize_batch(flat_sentences) if flat_sentences else []
+        flat_lemmas = self.lemmatize_batch([self.clean_text(s) for s in flat_sentences]) if flat_sentences else []
 
         results: list[ProcessedText] = []
-        for raw, cleaned, sents, (start, end) in zip(texts, cleaned_texts, sentence_lists, doc_boundaries):
+        for raw, sents, (start, end) in zip(texts, sentence_lists, doc_boundaries):
             results.append(
                 ProcessedText(
                     original=raw,
-                    cleaned=cleaned,
+                    cleaned=self.clean_text(raw),
                     paragraphs=self.segment_paragraphs(raw),
                     sentences=sents,
                     lemmatized_sentences=flat_lemmas[start:end],

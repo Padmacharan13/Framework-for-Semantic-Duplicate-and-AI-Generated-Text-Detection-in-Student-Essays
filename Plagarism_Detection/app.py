@@ -12,11 +12,13 @@ import sys
 from pathlib import Path
 from flask import Flask, jsonify, render_template, request
 
-from config import SBERT_MODEL, WEB_HOST, WEB_PORT
+from config import SBERT_MODEL, WEB_HOST, WEB_PORT, CROSS_ENCODER_MODEL
 from embeddings import Embedder
 from preprocessing import TextPreprocessor
 from similarity_engine import align_passages, document_level_summary
 from word2vec_engine import Word2VecEmbedder
+from faiss_engine import FAISSVectorIndex, SAMPLE_STUDENT_CORPUS
+from cross_encoder_reranker import CrossEncoderReranker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)
@@ -27,10 +29,12 @@ app = Flask(__name__, template_folder="templates", static_folder="static")
 preprocessor: TextPreprocessor | None = None
 embedder: Embedder | None = None
 w2v_embedder: Word2VecEmbedder | None = None
+faiss_db: FAISSVectorIndex | None = None
+cross_encoder: CrossEncoderReranker | None = None
 
 
-def get_models() -> tuple[TextPreprocessor, Embedder, Word2VecEmbedder]:
-    global preprocessor, embedder, w2v_embedder
+def get_models():
+    global preprocessor, embedder, w2v_embedder, faiss_db, cross_encoder
     if preprocessor is None:
         logger.info("Initializing TextPreprocessor (spaCy)...")
         preprocessor = TextPreprocessor()
@@ -40,10 +44,30 @@ def get_models() -> tuple[TextPreprocessor, Embedder, Word2VecEmbedder]:
     if w2v_embedder is None:
         logger.info("Initializing Word2Vec Embedder...")
         w2v_embedder = Word2VecEmbedder()
-    return preprocessor, embedder, w2v_embedder
+    if faiss_db is None:
+        logger.info("Initializing FAISS Vector Index...")
+        faiss_db = FAISSVectorIndex()
+        if not faiss_db.load():
+            logger.info("Building FAISS index with sample student corpus...")
+            faiss_db.build_corpus_index(SAMPLE_STUDENT_CORPUS, embedder)
+            try:
+                faiss_db.save()
+                logger.info("Saved FAISS index and metadata to disk.")
+            except Exception as e:
+                logger.warning("Could not persist FAISS index: %s", e)
+    if cross_encoder is None:
+        logger.info("Initializing Cross-Encoder Re-ranker ('%s')...", CROSS_ENCODER_MODEL)
+        cross_encoder = CrossEncoderReranker(model_name=CROSS_ENCODER_MODEL)
+
+    return preprocessor, embedder, w2v_embedder, faiss_db, cross_encoder
 
 
 PRESET_DOCUMENTS = {
+    "renewable_benchmark": {
+        "title": "Renewable Energy Paraphrase Benchmark (5-Tier Test Suite)",
+        "doc_a": """Renewable energy sources such as solar and wind power are becoming significantly more affordable with each passing year. As battery storage technology continues to improve, these renewable sources are expected to replace a large share of fossil fuel generation. Traditional power plants that burn coal and natural gas emit large amounts of carbon dioxide into the atmosphere every single day. Governments across the world are now offering tax incentives to homeowners who choose to install solar panels on their rooftops. Meanwhile, urban public transportation systems still rely heavily on diesel buses that consume large quantities of fossil fuel daily.""",
+        "doc_b": """Renewable energy sources such as solar and wind power are becoming significantly more affordable with each passing year. As storage battery technology keeps improving, these renewable sources are projected to replace a significant portion of fossil fuel generation. Conventional facilities that rely on burning coal and natural gas release substantial volumes of harmful greenhouse gases into the atmosphere continuously. Tax incentives are increasingly being provided by governments worldwide to encourage residents to add solar panels on top of their homes. In addition, remote teams often use collaborative software platforms to manage weekly project timelines and track task deadlines efficiently."""
+    },
     "paraphrased_essay": {
         "title": "Academic Paraphrasing (Heavy Rewrite)",
         "doc_a": """Academic integrity relies heavily on the authentic submission of assignments and essays. Digital submissions have scaled drastically, making manual comparison for duplicates virtually impossible for instructors. There is an urgent need for automated pipelines that can scan batches of student texts and index their underlying conceptual content. Traditional string-matching methods fail when a student restructures an essay using synonym substitution or syntax swapping while preserving the original meaning.""",
@@ -89,7 +113,7 @@ def get_presets():
 @app.route("/api/analyze", methods=["POST"])
 def analyze_documents():
     try:
-        prep, emb_sbert, emb_w2v = get_models()
+        prep, emb_sbert, emb_w2v, f_db, c_reranker = get_models()
 
         if request.is_json:
             data = request.get_json() or {}
@@ -122,15 +146,20 @@ def analyze_documents():
             return jsonify({"error": "Could not segment valid sentences from one or both documents."}), 400
 
         # Select model architecture for alignment
+        active_ce = None
         if model_type == "word2vec":
             active_embedder = emb_w2v
             model_name_label = "Word2Vec Dense Average"
+        elif model_type in ["cross_encoder", "sbert_cross_encoder", "2stage"]:
+            active_embedder = emb_sbert
+            active_ce = c_reranker
+            model_name_label = f"SBERT + Cross-Encoder 2-Stage Re-ranker"
         else:
             active_embedder = emb_sbert
             model_name_label = f"SBERT ({SBERT_MODEL})"
 
         # Run passage alignment & tiering
-        matches = align_passages(active_embedder, sentences_a, sentences_b, match_threshold=threshold)
+        matches = align_passages(active_embedder, sentences_a, sentences_b, match_threshold=threshold, cross_encoder=active_ce)
         summary = document_level_summary(matches, total_sentences_a=len(sentences_a))
 
         # Build match mappings for frontend rendering
@@ -157,6 +186,8 @@ def analyze_documents():
                 "index_b": idx_b,
                 "semantic_similarity": round(float(m.semantic_similarity), 4),
                 "lexical_similarity": round(float(m.lexical_similarity), 4),
+                "cross_encoder_score": round(float(m.cross_encoder_score), 4) if m.cross_encoder_score is not None else None,
+                "hybrid_score": round(float(m.hybrid_score), 4) if hasattr(m, 'hybrid_score') and m.hybrid_score is not None else round(float(m.semantic_similarity), 4),
                 "tier": m.tier,
                 "tier_label": m.tier.replace("_", " ").title()
             }
@@ -227,8 +258,47 @@ def analyze_documents():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/faiss/search", methods=["POST"])
+def faiss_search():
+    try:
+        prep, emb_sbert, emb_w2v, f_db, c_reranker = get_models()
+        data = request.get_json() or {}
+        query_text = data.get("query", "").strip()
+        top_k = int(data.get("top_k", 5))
+        rerank = bool(data.get("rerank", True))
+
+        if not query_text:
+            return jsonify({"error": "Query text cannot be empty."}), 400
+
+        candidates = f_db.search_candidates(query_text, emb_sbert, top_k=top_k)
+        if rerank and candidates:
+            candidates = c_reranker.rerank_candidates(query_text, candidates)
+
+        return jsonify({
+            "total_indexed": f_db.total_documents(),
+            "candidates": candidates,
+            "reranked_with_cross_encoder": rerank
+        })
+    except Exception as e:
+        logger.exception("FAISS search error")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/corpus", methods=["GET"])
+def get_corpus():
+    try:
+        prep, emb_sbert, emb_w2v, f_db, c_reranker = get_models()
+        return jsonify({
+            "total_documents": f_db.total_documents(),
+            "corpus": f_db.metadata
+        })
+    except Exception as e:
+        logger.exception("Get corpus error")
+        return jsonify({"error": str(e)}), 500
+
+
 def main():
-    logger.info("Pre-loading NLP, Word2Vec, and SBERT models...")
+    logger.info("Pre-loading NLP, Word2Vec, SBERT, FAISS, and Cross-Encoder models...")
     get_models()
     logger.info("Starting Web Application server on http://%s:%s", WEB_HOST, WEB_PORT)
     app.run(host=WEB_HOST, port=WEB_PORT, debug=False)

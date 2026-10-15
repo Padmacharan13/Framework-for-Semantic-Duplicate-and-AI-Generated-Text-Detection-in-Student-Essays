@@ -393,7 +393,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         if (filtered.length === 0) {
-            tableBody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 24px; color: var(--text-muted);">No matched passages found matching the current filters.</td></tr>`;
+            tableBody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding: 24px; color: var(--text-muted);">No matched passages found matching the current filters.</td></tr>`;
             return;
         }
 
@@ -404,11 +404,16 @@ document.addEventListener('DOMContentLoaded', () => {
                                m.tier === 'light_paraphrase' ? 'tier-badge-light' :
                                m.tier === 'heavy_paraphrase' ? 'tier-badge-heavy' : 'tier-badge-structural';
 
+            const ceDisplay = (m.cross_encoder_score !== null && m.cross_encoder_score !== undefined)
+                ? `<span class="score-chip score-chip-ce">${(m.cross_encoder_score * 100).toFixed(1)}%</span>`
+                : `<span style="color: var(--text-muted); font-size: 0.8rem;">—</span>`;
+
             tr.innerHTML = `
                 <td><strong>#${m.match_id}</strong></td>
                 <td>${escapeHtml(m.sentence_a)}</td>
                 <td>${escapeHtml(m.sentence_b)}</td>
-                <td><strong>${(m.semantic_similarity * 100).toFixed(1)}%</strong></td>
+                <td><span class="score-chip score-chip-bi">${(m.semantic_similarity * 100).toFixed(1)}%</span></td>
+                <td>${ceDisplay}</td>
                 <td>${(m.lexical_similarity * 100).toFixed(1)}%</td>
                 <td><span class="tier-badge-pill ${badgeClass}">${m.tier_label}</span></td>
             `;
@@ -444,4 +449,215 @@ document.addEventListener('DOMContentLoaded', () => {
     printReportBtn.addEventListener('click', () => {
         window.print();
     });
+
+    // --- 10. Navigation Tabs (Pairwise vs FAISS) ---
+    const tabBtnPairwise = document.getElementById('tabBtnPairwise');
+    const tabBtnFaiss = document.getElementById('tabBtnFaiss');
+    const pairwiseView = document.getElementById('pairwiseView');
+    const faissView = document.getElementById('faissView');
+
+    function switchTab(target) {
+        if (target === 'pairwise') {
+            tabBtnPairwise.classList.add('active');
+            tabBtnFaiss.classList.remove('active');
+            pairwiseView.style.display = 'block';
+            faissView.style.display = 'none';
+        } else {
+            tabBtnFaiss.classList.add('active');
+            tabBtnPairwise.classList.remove('active');
+            faissView.style.display = 'block';
+            pairwiseView.style.display = 'none';
+        }
+    }
+
+    if (tabBtnPairwise && tabBtnFaiss) {
+        tabBtnPairwise.addEventListener('click', () => switchTab('pairwise'));
+        tabBtnFaiss.addEventListener('click', () => switchTab('faiss'));
+    }
+
+    // --- 11. FAISS Corpus Search & Re-ranking Logic ---
+    const faissQueryText = document.getElementById('faissQueryText');
+    const faissTopK = document.getElementById('faissTopK');
+    const faissRerankToggle = document.getElementById('faissRerankToggle');
+    const faissSearchBtn = document.getElementById('faissSearchBtn');
+    const faissSpinner = document.getElementById('faissSpinner');
+    const faissResultsSection = document.getElementById('faissResultsSection');
+    const faissCandidatesList = document.getElementById('faissCandidatesList');
+    const faissResultsSubtitle = document.getElementById('faissResultsSubtitle');
+    const faissCorpusStatsBadge = document.getElementById('faissCorpusStatsBadge');
+    const browseCorpusBtn = document.getElementById('browseCorpusBtn');
+    const corpusBrowseSection = document.getElementById('corpusBrowseSection');
+    const closeCorpusBrowseBtn = document.getElementById('closeCorpusBrowseBtn');
+    const corpusGrid = document.getElementById('corpusGrid');
+
+    // Sample query buttons
+    document.querySelectorAll('.sample-query-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            faissQueryText.value = btn.dataset.query;
+        });
+    });
+
+    if (faissSearchBtn) {
+        faissSearchBtn.addEventListener('click', async () => {
+            const query = faissQueryText.value.trim();
+            if (!query) {
+                alert('Please enter a query text or click one of the sample prompt buttons.');
+                return;
+            }
+
+            faissSearchBtn.disabled = true;
+            if (faissSpinner) faissSpinner.style.display = 'inline-block';
+
+            try {
+                const topK = parseInt(faissTopK.value, 10) || 5;
+                const rerank = faissRerankToggle ? faissRerankToggle.checked : true;
+
+                const response = await fetch('/api/faiss/search', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        query: query,
+                        top_k: topK,
+                        rerank: rerank
+                    })
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.error || 'FAISS search error');
+                }
+
+                const result = await response.json();
+                renderFaissResults(query, result);
+            } catch (err) {
+                alert('Search Error: ' + err.message);
+            } finally {
+                faissSearchBtn.disabled = false;
+                if (faissSpinner) faissSpinner.style.display = 'none';
+            }
+        });
+    }
+
+    function renderFaissResults(query, result) {
+        faissResultsSection.classList.remove('hidden');
+        faissCandidatesList.innerHTML = '';
+
+        if (faissCorpusStatsBadge) {
+            faissCorpusStatsBadge.innerHTML = `<i class="fa-solid fa-database"></i> ${result.total_indexed} Documents Indexed`;
+        }
+
+        if (faissResultsSubtitle) {
+            faissResultsSubtitle.textContent = result.reranked_with_cross_encoder
+                ? `Retrieved ${result.candidates.length} candidates with FAISS vector search + Cross-Encoder 2-stage re-ranking`
+                : `Retrieved ${result.candidates.length} candidates with fast FAISS L2-normalized vector similarity`;
+        }
+
+        if (!result.candidates || result.candidates.length === 0) {
+            faissCandidatesList.innerHTML = '<p style="color:var(--text-muted); padding:20px; text-align:center;">No candidates found.</p>';
+            return;
+        }
+
+        result.candidates.forEach((cand, idx) => {
+            const card = document.createElement('div');
+            card.className = 'candidate-card';
+
+            const biScoreVal = cand.bi_encoder_similarity !== undefined ? cand.bi_encoder_similarity : (cand.bi_encoder_score || 0.0);
+            const biScorePercent = (biScoreVal * 100).toFixed(1);
+            const ceScoreDisplay = (cand.cross_encoder_score !== undefined && cand.cross_encoder_score !== null)
+                ? `<span class="score-chip score-chip-ce" title="Cross-Encoder Re-ranker Score"><i class="fa-solid fa-crosshairs"></i> Cross-Encoder: ${(cand.cross_encoder_score * 100).toFixed(1)}%</span>`
+                : '';
+
+            const authorStr = cand.author || (cand.metadata ? cand.metadata.author : '');
+            const titleStr = cand.title || (cand.metadata ? cand.metadata.title : '');
+            const authorInfo = authorStr ? `${authorStr}${titleStr ? ' — ' + titleStr : ''}` : titleStr;
+
+            card.innerHTML = `
+                <div class="candidate-card-header">
+                    <div class="candidate-title-info">
+                        <span class="candidate-rank-badge">Rank #${cand.rank || (idx + 1)}</span>
+                        <span class="candidate-id-badge">${escapeHtml(cand.doc_id)}</span>
+                        ${authorInfo ? `<span style="font-size:0.85rem; color:var(--text-muted);">${escapeHtml(authorInfo)}</span>` : ''}
+                    </div>
+                    <div class="candidate-scores-group">
+                        <span class="score-chip score-chip-bi" title="FAISS SBERT Cosine Similarity"><i class="fa-solid fa-vector-square"></i> FAISS Sim: ${biScorePercent}%</span>
+                        ${ceScoreDisplay}
+                    </div>
+                </div>
+                <div class="candidate-snippet">${escapeHtml(cand.text)}</div>
+                <div class="candidate-card-actions">
+                    <button type="button" class="btn btn-sm btn-primary compare-cand-btn">
+                        <i class="fa-solid fa-code-compare"></i> Compare in Pairwise Studio
+                    </button>
+                </div>
+            `;
+
+            const compareBtn = card.querySelector('.compare-cand-btn');
+            compareBtn.addEventListener('click', () => {
+                textDocA.value = query;
+                textDocB.value = cand.text;
+                updateTextStats(textDocA, statsDocA);
+                updateTextStats(textDocB, statsDocB);
+                switchTab('pairwise');
+                runAnalysis();
+            });
+
+            faissCandidatesList.appendChild(card);
+        });
+
+        faissResultsSection.scrollIntoView({ behavior: 'smooth' });
+    }
+
+    // Browse Corpus Library
+    if (browseCorpusBtn) {
+        browseCorpusBtn.addEventListener('click', async () => {
+            corpusBrowseSection.classList.remove('hidden');
+            corpusGrid.innerHTML = '<p style="color:var(--text-muted); padding:20px;">Loading indexed documents...</p>';
+
+            try {
+                const res = await fetch('/api/corpus');
+                if (res.ok) {
+                    const data = await res.json();
+                    renderCorpusLibrary(data.corpus || []);
+                }
+            } catch (err) {
+                corpusGrid.innerHTML = `<p style="color:var(--text-muted); padding:20px;">Failed to load corpus: ${err.message}</p>`;
+            }
+
+            corpusBrowseSection.scrollIntoView({ behavior: 'smooth' });
+        });
+    }
+
+    if (closeCorpusBrowseBtn) {
+        closeCorpusBrowseBtn.addEventListener('click', () => {
+            corpusBrowseSection.classList.add('hidden');
+        });
+    }
+
+    function renderCorpusLibrary(corpus) {
+        corpusGrid.innerHTML = '';
+        corpus.forEach(item => {
+            const card = document.createElement('div');
+            card.className = 'corpus-card';
+            card.innerHTML = `
+                <div class="corpus-card-header">
+                    <strong>${escapeHtml(item.doc_id)}</strong>
+                    <span>${escapeHtml(item.author || '')}</span>
+                </div>
+                <div class="corpus-card-title">${escapeHtml(item.title || 'Untitled')}</div>
+                <div class="corpus-card-text">${escapeHtml(item.text)}</div>
+                <div style="margin-top:10px; display:flex; justify-content:flex-end;">
+                    <button type="button" class="btn btn-sm btn-outline load-corpus-doc-btn">
+                        <i class="fa-solid fa-upload"></i> Load as Query
+                    </button>
+                </div>
+            `;
+
+            card.querySelector('.load-corpus-doc-btn').addEventListener('click', () => {
+                faissQueryText.value = item.text;
+                window.scrollTo({ top: faissQueryText.offsetTop - 100, behavior: 'smooth' });
+            });
+
+            corpusGrid.appendChild(card);
+        });
+    }
 });

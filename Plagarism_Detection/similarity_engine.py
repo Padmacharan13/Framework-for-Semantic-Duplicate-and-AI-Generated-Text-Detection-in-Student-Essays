@@ -1,171 +1,208 @@
-"""
-similarity_engine.py
-Two things live here:
-
-1. Batch scoring functions used by evaluate.py to benchmark TF-IDF vs SBERT
-   on MSRP/QQP (whole-pair similarity, vectorized — no Python loops).
-2. Sentence-level passage alignment + paraphrase-intensity tiering used by
-   demo.py to produce a human-readable report for two full documents.
-"""
-
-from __future__ import annotations
-
-from dataclasses import dataclass
-
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity as sk_cosine_similarity
+from sklearn.metrics.pairwise import cosine_similarity
+from sentence_transformers import SentenceTransformer
+from word2vec_engine import Word2VecEmbedder
+from config import WORD2VEC_MODEL_PATH, SBERT_FINETUNED_PATH, SBERT_BASE_MODEL
 
-from config import PARAPHRASE_TIERS
-from embeddings import Embedder
+class SimilarityBenchmarkEngine:
+    def __init__(self):
+        # 1. TF-IDF
+        self.tfidf_vectorizer = TfidfVectorizer(ngram_range=(1, 2), stop_words="english")
+        self.tfidf_fitted = False
+
+        # 2. Word2Vec
+        self.w2v_embedder = Word2VecEmbedder(WORD2VEC_MODEL_PATH)
+
+        # 3. Pre-trained SBERT (all-MiniLM-L6-v2)
+        self.sbert_model = SentenceTransformer(SBERT_BASE_MODEL)
+
+        # 4. Cross-Encoder Re-ranker
+        from cross_encoder_reranker import CrossEncoderReranker
+        self.cross_encoder = CrossEncoderReranker()
+
+    def fit_tfidf(self, corpus: list[str]):
+        self.tfidf_vectorizer.fit(corpus)
+        self.tfidf_fitted = True
+
+    def compute_tfidf_similarity(self, text1_list: list[str], text2_list: list[str]) -> np.ndarray:
+        if not self.tfidf_fitted:
+            self.fit_tfidf(text1_list + text2_list)
+        vecs1 = self.tfidf_vectorizer.transform(text1_list)
+        vecs2 = self.tfidf_vectorizer.transform(text2_list)
+        # Compute row-wise cosine similarity (not element-wise dot product)
+        sims = np.array([
+            float(cosine_similarity(vecs1[i], vecs2[i])[0, 0])
+            for i in range(vecs1.shape[0])
+        ])
+        return np.clip(sims, 0.0, 1.0)
+
+    def compute_w2v_similarity(self, text1_list: list[str], text2_list: list[str]) -> np.ndarray:
+        vecs1 = self.w2v_embedder.encode(text1_list)
+        vecs2 = self.w2v_embedder.encode(text2_list)
+        sims = np.sum(vecs1 * vecs2, axis=1)
+        return np.clip(sims, 0.0, 1.0)
+
+    def compute_sbert_similarity(self, text1_list: list[str], text2_list: list[str]) -> np.ndarray:
+        vecs1 = self.sbert_model.encode(text1_list, batch_size=64, normalize_embeddings=True, show_progress_bar=True)
+        vecs2 = self.sbert_model.encode(text2_list, batch_size=64, normalize_embeddings=True, show_progress_bar=True)
+        return np.sum(vecs1 * vecs2, axis=1)
+
+    def compute_hybrid_similarity(self, text1_list: list[str], text2_list: list[str]) -> np.ndarray:
+        sbert_sim = self.compute_sbert_similarity(text1_list, text2_list)
+        tfidf_sim = self.compute_tfidf_similarity(text1_list, text2_list)
+        return 0.8 * sbert_sim + 0.2 * tfidf_sim
+
+    def compute_cross_encoder_similarity(self, text1_list: list[str], text2_list: list[str]) -> np.ndarray:
+        pairs = list(zip(text1_list, text2_list))
+        scores = self.cross_encoder.predict_pairs(pairs)
+        return np.clip(np.nan_to_num(scores, nan=0.0), 0.0, 1.0)
 
 
-# ---------------------------------------------------------------------------
-# 1. Batch pair-scoring (for evaluate.py)
-# ---------------------------------------------------------------------------
+import re
+from dataclasses import dataclass
 
-def tfidf_pair_similarity(text_a_list: list[str], text_b_list: list[str]) -> np.ndarray:
-    """
-    Vectorized TF-IDF cosine similarity for a list of (a, b) pairs.
-    Fits ONE TF-IDF vocabulary across all texts (both sides, all rows) so
-    similarity scores are comparable across the whole dataset.
-    """
-    vectorizer = TfidfVectorizer(max_features=50_000, ngram_range=(1, 2))
-    all_texts = text_a_list + text_b_list
-    vectorizer.fit(all_texts)
-
-    mat_a = vectorizer.transform(text_a_list)
-    mat_b = vectorizer.transform(text_b_list)
-
-    # row-wise cosine similarity between mat_a[i] and mat_b[i], not a full
-    # NxN matrix - we only need the diagonal for pairwise dataset scoring
-    n = mat_a.shape[0]
-    sims = np.zeros(n, dtype=np.float32)
-    batch = 2000
-    for start in range(0, n, batch):
-        end = min(start + batch, n)
-        sub_sims = sk_cosine_similarity(mat_a[start:end], mat_b[start:end])
-        sims[start:end] = np.diagonal(sub_sims)
-    return sims
-
-
-def sbert_pair_similarity(embedder: Embedder, text_a_list: list[str], text_b_list: list[str]) -> np.ndarray:
-    """
-    Vectorized SBERT cosine similarity for a list of (a, b) pairs.
-    Embeddings are pre-normalized, so cosine similarity is just a row-wise
-    dot product - no sklearn pairwise call needed.
-    """
-    emb_a = embedder.encode(text_a_list, show_progress=True)
-    emb_b = embedder.encode(text_b_list, show_progress=True)
-    sims = np.sum(emb_a * emb_b, axis=1)  # row-wise dot product of normalized vectors
-    return sims
-
-
-def word2vec_pair_similarity(w2v_embedder, text_a_list: list[str], text_b_list: list[str]) -> np.ndarray:
-    """
-    Vectorized Word2Vec cosine similarity for a list of (a, b) pairs.
-    Dense average word vectors are pre-normalized, so cosine similarity is
-    row-wise dot product.
-    """
-    emb_a = w2v_embedder.encode(text_a_list)
-    emb_b = w2v_embedder.encode(text_b_list)
-    sims = np.sum(emb_a * emb_b, axis=1)
-    return sims
-
-
-# ---------------------------------------------------------------------------
-# 2. Passage-level alignment + tiering (for demo.py)
-# ---------------------------------------------------------------------------
 
 @dataclass
-class MatchedPassage:
+class PassageMatch:
     sentence_a: str
     sentence_b: str
     semantic_similarity: float
     lexical_similarity: float
     tier: str
+    cross_encoder_score: float | None = None
+    hybrid_score: float | None = None
 
 
-def _lexical_similarity(a: str, b: str) -> float:
-    """Cheap word-overlap (Jaccard) signal, used alongside SBERT for tiering."""
-    words_a = set(a.lower().split())
-    words_b = set(b.lower().split())
-    if not words_a or not words_b:
+def compute_lexical_similarity(str1: str, str2: str) -> float:
+    words1 = set(re.findall(r"\w+", str1.lower()))
+    words2 = set(re.findall(r"\w+", str2.lower()))
+    if not words1 or not words2:
         return 0.0
-    return len(words_a & words_b) / len(words_a | words_b)
-
-
-def _classify_tier(semantic_sim: float, lexical_sim: float) -> str:
-    """
-    Combines the semantic (SBERT) and lexical (word-overlap) signals into
-    one of the four paraphrase-intensity tiers defined in config.py.
-    High lexical + high semantic -> verbatim/near-verbatim copying.
-    Low lexical + high semantic -> heavy paraphrase / structural rewrite.
-    """
-    if semantic_sim < 0.55:
-        return "not_matched"
-    if lexical_sim >= 0.6:
-        return "verbatim"
-    if lexical_sim >= 0.3:
-        return "light_paraphrase"
-    if semantic_sim >= 0.75:
-        return "heavy_paraphrase"
-    return "structural_rewrite"
+    intersection = words1.intersection(words2)
+    union = words1.union(words2)
+    return len(intersection) / len(union)
 
 
 def align_passages(
-    embedder: Embedder,
+    embedder,
     sentences_a: list[str],
     sentences_b: list[str],
     match_threshold: float = 0.55,
-) -> list[MatchedPassage]:
-    """
-    Greedy best-match sentence alignment between two documents:
-    for every sentence in doc A, find its most similar sentence in doc B.
-    Only keeps matches above `match_threshold`. This is the simplified
-    version of PAN-style passage alignment - good enough to demo the
-    concept without implementing the full contiguous-span-merging algorithm.
-    """
+    cross_encoder=None
+) -> list[PassageMatch]:
     if not sentences_a or not sentences_b:
         return []
 
-    emb_a = embedder.encode(sentences_a)
-    emb_b = embedder.encode(sentences_b)
-    sim_matrix = emb_a @ emb_b.T  # (len_a, len_b), both sides pre-normalized
+    vecs_a = embedder.encode(sentences_a)
+    vecs_b = embedder.encode(sentences_b)
 
-    matches: list[MatchedPassage] = []
+    norms_a = np.linalg.norm(vecs_a, axis=1, keepdims=True)
+    norms_b = np.linalg.norm(vecs_b, axis=1, keepdims=True)
+    norms_a[norms_a == 0] = 1.0
+    norms_b[norms_b == 0] = 1.0
+
+    normed_a = vecs_a / norms_a
+    normed_b = vecs_b / norms_b
+
+    sim_matrix = np.dot(normed_a, normed_b.T)
+
+    matches: list[PassageMatch] = []
+    pairs_to_rerank = []
+    match_candidates = []
+
     for i, sent_a in enumerate(sentences_a):
-        j = int(np.argmax(sim_matrix[i]))
-        sem_sim = float(sim_matrix[i, j])
-        if sem_sim < match_threshold:
-            continue
-        sent_b = sentences_b[j]
-        lex_sim = _lexical_similarity(sent_a, sent_b)
-        tier = _classify_tier(sem_sim, lex_sim)
-        if tier == "not_matched":
-            continue
-        matches.append(MatchedPassage(
-            sentence_a=sent_a,
-            sentence_b=sent_b,
-            semantic_similarity=sem_sim,
-            lexical_similarity=lex_sim,
-            tier=tier,
-        ))
+        best_j = int(np.argmax(sim_matrix[i]))
+        best_sim = float(sim_matrix[i, best_j])
+
+        if best_sim >= match_threshold:
+            sent_b = sentences_b[best_j]
+            lex_sim = float(compute_lexical_similarity(sent_a, sent_b))
+            match_candidates.append((sent_a, sent_b, best_sim, lex_sim))
+            if cross_encoder is not None:
+                pairs_to_rerank.append((sent_a, sent_b))
+
+    ce_scores = []
+    if cross_encoder is not None and pairs_to_rerank:
+        try:
+            ce_scores = cross_encoder.predict_pairs(pairs_to_rerank)
+        except Exception as e:
+            ce_scores = [None] * len(pairs_to_rerank)
+
+    for idx, (sent_a, sent_b, best_sim, lex_sim) in enumerate(match_candidates):
+        ce_score = float(ce_scores[idx]) if idx < len(ce_scores) and ce_scores[idx] is not None else None
+        
+        # Effective similarity score for tier classification
+        if ce_score is not None:
+            eff_sim = 0.6 * ce_score + 0.4 * best_sim
+        else:
+            eff_sim = best_sim
+
+        norm_a = sent_a.strip().lower()
+        norm_b = sent_b.strip().lower()
+
+        if norm_a == norm_b or lex_sim >= 0.85 or (eff_sim >= 0.98 and lex_sim >= 0.75):
+            tier = "verbatim"
+        elif eff_sim >= 0.88 and lex_sim >= 0.50:
+            tier = "light_paraphrase"
+        elif eff_sim >= 0.80 and lex_sim < 0.45:
+            tier = "structural_rewrite"
+        elif eff_sim >= 0.60:
+            tier = "heavy_paraphrase"
+        else:
+            tier = "structural_rewrite"
+
+        matches.append(
+            PassageMatch(
+                sentence_a=sent_a,
+                sentence_b=sent_b,
+                semantic_similarity=best_sim,
+                lexical_similarity=lex_sim,
+                tier=tier,
+                cross_encoder_score=ce_score,
+                hybrid_score=round(eff_sim, 4) if ce_score is not None else round(best_sim, 4)
+            )
+        )
+
     return matches
 
 
-def document_level_summary(matches: list[MatchedPassage], total_sentences_a: int) -> dict:
-    """Rolls up passage-level matches into one overall document verdict."""
-    if not matches or total_sentences_a == 0:
-        return {"overall_score": 0.0, "flagged": False, "matched_sentence_ratio": 0.0, "tier_counts": {}}
+def document_level_summary(matches: list[PassageMatch], total_sentences_a: int) -> dict:
+    empty_tier_counts = {
+        "verbatim": 0,
+        "light_paraphrase": 0,
+        "heavy_paraphrase": 0,
+        "structural_rewrite": 0
+    }
+    if total_sentences_a == 0:
+        return {
+            "overall_score": 0.0,
+            "matched_sentence_ratio": 0.0,
+            "flagged": False,
+            "tier_counts": empty_tier_counts
+        }
 
-    avg_sem = float(np.mean([m.semantic_similarity for m in matches]))
-    ratio = len(matches) / total_sentences_a
-    tier_counts = {t: sum(1 for m in matches if m.tier == t) for t in PARAPHRASE_TIERS}
+    matched_count = len(matches)
+    ratio = matched_count / total_sentences_a
+
+    tier_counts = {
+        "verbatim": 0,
+        "light_paraphrase": 0,
+        "heavy_paraphrase": 0,
+        "structural_rewrite": 0
+    }
+    avg_sim = 0.0
+    if matches:
+        avg_sim = float(np.mean([m.semantic_similarity for m in matches]))
+        for m in matches:
+            tier_counts[m.tier] = tier_counts.get(m.tier, 0) + 1
+
+    overall_score = float(round(avg_sim * ratio, 4))
+    flagged = bool(overall_score >= 0.35 or (matched_count > 0 and ratio >= 0.5))
 
     return {
-        "overall_score": round(avg_sem, 4),
+        "overall_score": overall_score,
         "matched_sentence_ratio": round(ratio, 4),
-        "flagged": avg_sem >= 0.75 and ratio >= 0.4,
-        "tier_counts": tier_counts,
-    }
+        "flagged": flagged,
+        "tier_counts": tier_counts
+    }
