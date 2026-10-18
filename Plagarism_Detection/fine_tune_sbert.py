@@ -3,7 +3,7 @@ import numpy as np
 from torch.utils.data import DataLoader
 from sentence_transformers import SentenceTransformer, InputExample
 from sentence_transformers.sentence_transformer import losses, evaluation
-from config import (
+from semantic_integrity.config import (
     MSRP_PROCESSED_PATH,
     QQP_PROCESSED_PATH,
     SBERT_BASE_MODEL,

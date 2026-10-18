@@ -1,0 +1,4 @@
+Type,Model,Threshold,Accuracy,Precision,Recall,F1-Score,ROC-AUC
+Baseline 1,TF-IDF,0.215,0.6817,0.6788,0.9895,0.8053,0.7036
+Baseline 2,Word2Vec,0.71,0.6788,0.6768,0.9895,0.8038,0.6751
+Proposed Model,Hybrid SBERT,0.615,0.7206,0.7276,0.9268,0.8152,0.7519

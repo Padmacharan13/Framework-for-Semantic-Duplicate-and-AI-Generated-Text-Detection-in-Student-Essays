@@ -3,7 +3,7 @@ import logging
 import spacy
 from pathlib import Path
 from gensim.models import Word2Vec
-from config import WORD2VEC_MODEL_PATH, W2V_VECTOR_SIZE, W2V_WINDOW, W2V_MIN_COUNT, W2V_EPOCHS
+from .config import WORD2VEC_MODEL_PATH, W2V_VECTOR_SIZE, W2V_WINDOW, W2V_MIN_COUNT, W2V_EPOCHS
 
 logger = logging.getLogger(__name__)
 

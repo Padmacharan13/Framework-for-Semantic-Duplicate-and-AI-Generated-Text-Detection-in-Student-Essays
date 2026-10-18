@@ -18,7 +18,7 @@ import spacy
 from spacy.language import Language
 from spacy.tokens import Doc
 
-from config import SPACY_MODEL
+from .config import SPACY_MODEL
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)

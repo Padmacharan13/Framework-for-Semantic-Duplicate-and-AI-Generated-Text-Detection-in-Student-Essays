@@ -11,7 +11,7 @@ import logging
 import pandas as pd
 from datasets import concatenate_datasets, load_dataset
 
-from config import (
+from .config import (
     HF_MSRP_CONFIG,
     HF_MSRP_DATASET,
     HF_MSRP_SPLITS,
@@ -34,6 +34,21 @@ def load_msrp() -> pd.DataFrame:
         ds_df["split"] = s
         dfs.append(ds_df)
     df = pd.concat(dfs, ignore_index=True)
+
+    # ── Filter out hidden / sentinel labels (-1) that GLUE test splits contain ──
+    before = len(df)
+    df = df[df["label"].isin([0, 1])]
+    dropped = before - len(df)
+    if dropped:
+        logger.warning(
+            "Dropped %d MSRP rows with hidden labels (-1). "
+            "If the test split is empty after filtering, a held-out test set "
+            "will be carved from train+validation later.",
+            dropped,
+        )
+
+    df = df.dropna(subset=["sentence1", "sentence2"]).reset_index(drop=True)
+
     standardized = pd.DataFrame({
         "id": df.index.astype(str).map(lambda i: f"msrp_{i}"),
         "split": df["split"].astype(str),

@@ -14,7 +14,7 @@ from typing import Any
 import faiss
 import numpy as np
 
-from config import FAISS_INDEX_PATH, FAISS_METADATA_PATH, FAISS_TOP_K
+from .config import FAISS_INDEX_PATH, FAISS_METADATA_PATH, FAISS_TOP_K
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)

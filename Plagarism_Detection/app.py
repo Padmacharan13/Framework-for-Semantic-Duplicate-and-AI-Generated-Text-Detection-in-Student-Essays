@@ -12,13 +12,13 @@ import sys
 from pathlib import Path
 from flask import Flask, jsonify, render_template, request
 
-from config import SBERT_MODEL, WEB_HOST, WEB_PORT, CROSS_ENCODER_MODEL
-from embeddings import Embedder
-from preprocessing import TextPreprocessor
-from similarity_engine import align_passages, document_level_summary
-from word2vec_engine import Word2VecEmbedder
-from faiss_engine import FAISSVectorIndex, SAMPLE_STUDENT_CORPUS
-from cross_encoder_reranker import CrossEncoderReranker
+from semantic_integrity.config import SBERT_MODEL, WEB_HOST, WEB_PORT, CROSS_ENCODER_MODEL
+from semantic_integrity.embeddings import Embedder
+from semantic_integrity.preprocessing import TextPreprocessor
+from semantic_integrity.similarity_engine import align_passages, document_level_summary
+from semantic_integrity.word2vec_engine import Word2VecEmbedder
+from semantic_integrity.faiss_engine import FAISSVectorIndex, SAMPLE_STUDENT_CORPUS
+from semantic_integrity.cross_encoder_reranker import CrossEncoderReranker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)

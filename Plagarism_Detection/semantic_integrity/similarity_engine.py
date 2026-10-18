@@ -2,8 +2,8 @@ import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from sentence_transformers import SentenceTransformer
-from word2vec_engine import Word2VecEmbedder
-from config import WORD2VEC_MODEL_PATH, SBERT_MODEL
+from .word2vec_engine import Word2VecEmbedder
+from .config import WORD2VEC_MODEL_PATH, SBERT_MODEL
 
 class SimilarityBenchmarkEngine:
     def __init__(self):
@@ -18,7 +18,7 @@ class SimilarityBenchmarkEngine:
         self.sbert_model = SentenceTransformer(SBERT_MODEL)
 
         # 4. Cross-Encoder Re-ranker
-        from cross_encoder_reranker import CrossEncoderReranker
+        from .cross_encoder_reranker import CrossEncoderReranker
         self.cross_encoder = CrossEncoderReranker()
 
     def fit_tfidf(self, corpus: list[str]):

@@ -17,9 +17,9 @@ import logging
 
 import pandas as pd
 
-from config import MSRP_PROCESSED_PATH, QQP_PROCESSED_PATH, ensure_directories
-from data_loader import load_msrp, load_qqp
-from preprocessing import TextPreprocessor
+from semantic_integrity.config import MSRP_PROCESSED_PATH, QQP_PROCESSED_PATH, ensure_directories
+from semantic_integrity.data_loader import load_msrp, load_qqp
+from semantic_integrity.preprocessing import TextPreprocessor
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)

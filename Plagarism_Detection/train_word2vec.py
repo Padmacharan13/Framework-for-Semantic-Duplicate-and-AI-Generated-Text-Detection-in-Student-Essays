@@ -1,6 +1,6 @@
 import pandas as pd
-from config import MSRP_PROCESSED_PATH, QQP_PROCESSED_PATH, WORD2VEC_MODEL_PATH
-from word2vec_engine import train_word2vec
+from semantic_integrity.config import MSRP_PROCESSED_PATH, QQP_PROCESSED_PATH, WORD2VEC_MODEL_PATH
+from semantic_integrity.word2vec_engine import train_word2vec
 
 def main():
     print("[1/3] Loading training texts...", flush=True)

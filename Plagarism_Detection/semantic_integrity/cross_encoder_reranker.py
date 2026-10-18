@@ -12,7 +12,7 @@ from typing import Any
 import numpy as np
 from sentence_transformers import CrossEncoder
 
-from config import CROSS_ENCODER_MODEL
+from .config import CROSS_ENCODER_MODEL
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)

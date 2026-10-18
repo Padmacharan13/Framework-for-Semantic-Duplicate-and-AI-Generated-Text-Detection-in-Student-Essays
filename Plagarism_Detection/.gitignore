@@ -1,5 +1,5 @@
 # ============================================================
-# Git Ignore Rules — Plagiarism & Paraphrase Detection System
+# Git Ignore Rules — Semantic Integrity Framework
 # ============================================================
 
 # --- Virtual Environments ---
@@ -31,28 +31,41 @@ __pycache__/
 htmlcov/
 
 # --- Model Binaries & Heavy Data Artifacts ---
+# These should be downloaded via the provided scripts or from HuggingFace Hub.
+models/word2vec.model
+models/word2vec.model.wv.*
+models/sbert_finetuned/
+models/faiss_index.bin
+models/faiss_metadata.json
+models/ai_detection/
+data/word2vec_paraphrase.model
 *.model
 *.model.wv.*
 *.parquet
+*.bin
 .huggingface/
+
+# --- Checkpoints (training intermediates) ---
+checkpoints/
 
 # --- IDEs & OS System Files ---
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
-# Virtual environments
-.venv/
-venv/
-env/
 
-# Python cache
-__pycache__/
-*.pyc
-
-# Data files, datasets, and models that might be too large
+# --- Large data files ---
 *.csv
+!results/evaluation_results.csv
 *.pkl
 *.h5
 *.zip
 *.tar
+*.tar.gz
+*.safetensors
+*.onnx
+
+# --- Logs ---
+*.log
+wandb/
+runs/

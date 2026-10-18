@@ -12,7 +12,7 @@ from typing import Iterable
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
-from config import SBERT_MODEL
+from .config import SBERT_MODEL
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)

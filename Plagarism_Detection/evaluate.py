@@ -2,8 +2,8 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score, roc_auc_score
-from config import MSRP_PROCESSED_PATH, QQP_PROCESSED_PATH, EVAL_RESULTS_CSV, EVAL_PLOT_PNG
-from similarity_engine import SimilarityBenchmarkEngine
+from semantic_integrity.config import MSRP_PROCESSED_PATH, QQP_PROCESSED_PATH, EVAL_RESULTS_CSV, EVAL_PLOT_PNG
+from semantic_integrity.similarity_engine import SimilarityBenchmarkEngine
 
 def optimize_threshold(y_true: np.ndarray, scores: np.ndarray) -> float:
     best_thresh, best_f1 = 0.5, -1.0
@@ -27,27 +27,42 @@ def evaluate_predictions(y_true: np.ndarray, scores: np.ndarray, threshold: floa
 
 def main():
     print("[1/4] Loading Validation and Test sets...")
-    has_split = False
-    val_dfs, test_dfs = [], []
-    
-    for path in [MSRP_PROCESSED_PATH, QQP_PROCESSED_PATH]:
-        if path.exists():
-            df = pd.read_parquet(path)
-            if "split" in df.columns:
-                has_split = True
-                val_dfs.append(df[df["split"] == "validation"])
-                test_dfs.append(df[df["split"] == "test"])
 
-    if not has_split or len(val_dfs) == 0:
-        print("  -> Loading fresh splits directly via data_loader...")
-        from data_loader import load_msrp, load_qqp
-        msrp_df = load_msrp()
-        qqp_df = load_qqp()
-        val_df = pd.concat([msrp_df[msrp_df["split"] == "validation"], qqp_df[qqp_df["split"] == "validation"]], ignore_index=True)
-        test_df = pd.concat([msrp_df[msrp_df["split"] == "test"], qqp_df[qqp_df["split"] == "test"]], ignore_index=True)
-    else:
-        val_df = pd.concat(val_dfs, ignore_index=True)
-        test_df = pd.concat(test_dfs, ignore_index=True)
+    # Always load fresh from HF to ensure label filtering is applied
+    from semantic_integrity.data_loader import load_msrp, load_qqp
+    from semantic_integrity.config import RANDOM_SEED
+    msrp_df = load_msrp()
+    qqp_df = load_qqp()
+
+    # Check if test splits have usable labeled rows after GLUE -1 filtering
+    msrp_test = msrp_df[msrp_df["split"] == "test"]
+    qqp_test = qqp_df[qqp_df["split"] == "test"]
+
+    if len(msrp_test) == 0 or len(qqp_test) == 0:
+        print("  -> GLUE test splits have hidden labels; carving test from train+validation (seed=%d)..." % RANDOM_SEED)
+        # Combine train+validation, then split 80/10/10
+        for name, src_df in [("msrp", msrp_df), ("qqp", qqp_df)]:
+            labeled = src_df[src_df["split"].isin(["train", "validation"])].copy()
+            labeled = labeled.sample(frac=1, random_state=RANDOM_SEED).reset_index(drop=True)
+            n = len(labeled)
+            n_val = max(1, int(n * 0.125))  # ~12.5% for val, ~12.5% for test
+            n_test = n_val
+            labeled.iloc[:n_test, labeled.columns.get_loc("split")] = "test"
+            labeled.iloc[n_test:n_test + n_val, labeled.columns.get_loc("split")] = "validation"
+            labeled.iloc[n_test + n_val:, labeled.columns.get_loc("split")] = "train"
+            if name == "msrp":
+                msrp_df = labeled
+            else:
+                qqp_df = labeled
+
+    val_df = pd.concat([
+        msrp_df[msrp_df["split"] == "validation"],
+        qqp_df[qqp_df["split"] == "validation"]
+    ], ignore_index=True)
+    test_df = pd.concat([
+        msrp_df[msrp_df["split"] == "test"],
+        qqp_df[qqp_df["split"] == "test"]
+    ], ignore_index=True)
 
     print(f"  -> Validation pairs: {len(val_df)}, Test pairs: {len(test_df)}")
 
