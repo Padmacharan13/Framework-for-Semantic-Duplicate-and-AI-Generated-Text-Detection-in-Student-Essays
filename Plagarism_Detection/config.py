@@ -10,14 +10,15 @@ PROCESSED_DATA_DIR = DATA_DIR / "processed"
 MODELS_DIR = PROJECT_ROOT / "models"
 RESULTS_DIR = PROJECT_ROOT / "results"
 
-for directory in [DATA_DIR, PROCESSED_DATA_DIR, MODELS_DIR, RESULTS_DIR]:
-    directory.mkdir(parents=True, exist_ok=True)
+# Directories are created lazily by entry-point scripts, not at import time.
+# To create them explicitly, call ensure_directories() below.
+def ensure_directories():
+    for directory in [DATA_DIR, PROCESSED_DATA_DIR, MODELS_DIR, RESULTS_DIR]:
+        directory.mkdir(parents=True, exist_ok=True)
 
 # Processed Files
 MSRP_PROCESSED_PATH = PROCESSED_DATA_DIR / "msrp_processed.parquet"
 QQP_PROCESSED_PATH = PROCESSED_DATA_DIR / "qqp_processed.parquet"
-PROCESSED_MSRP_FILE = MSRP_PROCESSED_PATH
-PROCESSED_QQP_FILE = QQP_PROCESSED_PATH
 
 # Model Paths
 WORD2VEC_MODEL_PATH = MODELS_DIR / "word2vec.model"
@@ -27,8 +28,14 @@ FAISS_METADATA_PATH = MODELS_DIR / "faiss_metadata.json"
 
 # Model Settings
 SBERT_BASE_MODEL = "all-MiniLM-L6-v2"
-SBERT_MODEL = SBERT_BASE_MODEL
-CROSS_ENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+# Prefer the fine‑tuned SBERT model if it has been saved under the models directory.
+# The fine‑tuned model is stored as a directory; if it exists we load it directly.
+
+if Path(SBERT_FINETUNED_PATH).exists():
+    SBERT_MODEL = str(SBERT_FINETUNED_PATH)
+else:
+    SBERT_MODEL = SBERT_BASE_MODEL
+CROSS_ENCODER_MODEL = "cross-encoder/quora-distilroberta-base"
 SPACY_MODEL = "en_core_web_sm"
 W2V_VECTOR_SIZE = 300
 W2V_WINDOW = 5

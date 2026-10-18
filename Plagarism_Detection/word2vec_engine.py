@@ -49,7 +49,7 @@ class Word2VecEmbedder:
 
     def get_sentence_vector(self, text: str) -> np.ndarray:
         if not self.available or self.model is None:
-            return np.zeros(self.dim, dtype=np.float32)
+            raise RuntimeError("Word2Vec model is unavailable; cannot compute sentence vectors.")
         tokens = tokenize(text)
         vectors = [self.model.wv[t] for t in tokens if t in self.model.wv]
         if not vectors:
@@ -60,7 +60,7 @@ class Word2VecEmbedder:
 
     def encode(self, texts: list[str]) -> np.ndarray:
         if not self.available or self.model is None:
-            return np.zeros((len(texts), self.dim), dtype=np.float32)
+            raise RuntimeError("Word2Vec model is unavailable; cannot encode texts.")
         docs = nlp.pipe([str(t) for t in texts], batch_size=2000)
         res = []
         for doc in docs:

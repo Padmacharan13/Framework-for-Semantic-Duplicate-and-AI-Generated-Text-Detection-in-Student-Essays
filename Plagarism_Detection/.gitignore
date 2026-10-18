@@ -41,3 +41,18 @@ htmlcov/
 .idea/
 .DS_Store
 Thumbs.db
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Data files, datasets, and models that might be too large
+*.csv
+*.pkl
+*.h5
+*.zip
+*.tar

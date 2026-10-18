@@ -50,9 +50,7 @@ class CrossEncoderReranker:
             return np.array([], dtype=np.float32)
 
         if not self.available or self.model is None:
-            # Fallback score generator if offline / model unavailable
-            logger.warning("Cross-Encoder unavailable; returning fallback scores.")
-            return np.array([0.5] * len(pairs), dtype=np.float32)
+            raise RuntimeError("Cross-Encoder model is unavailable; cannot compute scores.")
 
         try:
             # Convert tuples to list of lists for compatibility with both v2 and v3
@@ -73,7 +71,7 @@ class CrossEncoderReranker:
             return norm_scores
         except Exception as e:
             logger.error("Error predicting Cross-Encoder scores: %s", e)
-            return np.array([0.5] * len(pairs), dtype=np.float32)
+            raise RuntimeError(f"Cross-Encoder prediction failed: {e}")
 
     def predict_pair(self, text_a: str, text_b: str) -> float:
         scores = self.predict_pairs([(text_a, text_b)])

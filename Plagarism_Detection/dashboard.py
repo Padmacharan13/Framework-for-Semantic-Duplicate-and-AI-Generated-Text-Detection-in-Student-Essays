@@ -1,6 +1,6 @@
 """
 dashboard.py
-Streamlit Interactive Instructor Dashboard for Semantic Duplicate, Paraphrase, and AI-Generated Text Detection.
+Streamlit Interactive Instructor Dashboard for Semantic Duplicate and Paraphrase Detection.
 Features FAISS Vector Index candidate retrieval, Cross-Encoder 2-stage re-ranking, single-pair passage alignment, and batch audit reports.
 """
 

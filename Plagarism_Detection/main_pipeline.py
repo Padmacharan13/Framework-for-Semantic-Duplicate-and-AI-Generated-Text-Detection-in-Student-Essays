@@ -17,7 +17,7 @@ import logging
 
 import pandas as pd
 
-from config import PROCESSED_MSRP_FILE, PROCESSED_QQP_FILE
+from config import MSRP_PROCESSED_PATH, QQP_PROCESSED_PATH, ensure_directories
 from data_loader import load_msrp, load_qqp
 from preprocessing import TextPreprocessor
 
@@ -38,17 +38,18 @@ def preprocess_pair_dataframe(df: pd.DataFrame, preprocessor: TextPreprocessor) 
 
 
 def run() -> None:
+    ensure_directories()
     preprocessor = TextPreprocessor()
 
     msrp_df = load_msrp()
     msrp_processed = preprocess_pair_dataframe(msrp_df, preprocessor)
-    msrp_processed.to_parquet(PROCESSED_MSRP_FILE, index=False)
-    logger.info("Saved processed MSRP -> %s (%d rows)", PROCESSED_MSRP_FILE, len(msrp_processed))
+    msrp_processed.to_parquet(MSRP_PROCESSED_PATH, index=False)
+    logger.info("Saved processed MSRP -> %s (%d rows)", MSRP_PROCESSED_PATH, len(msrp_processed))
 
     qqp_df = load_qqp()
     qqp_processed = preprocess_pair_dataframe(qqp_df, preprocessor)
-    qqp_processed.to_parquet(PROCESSED_QQP_FILE, index=False)
-    logger.info("Saved processed QQP -> %s (%d rows)", PROCESSED_QQP_FILE, len(qqp_processed))
+    qqp_processed.to_parquet(QQP_PROCESSED_PATH, index=False)
+    logger.info("Saved processed QQP -> %s (%d rows)", QQP_PROCESSED_PATH, len(qqp_processed))
 
     logger.info("Preprocessing pipeline complete.")
 

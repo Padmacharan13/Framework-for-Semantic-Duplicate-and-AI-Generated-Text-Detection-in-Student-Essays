@@ -3,7 +3,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from sentence_transformers import SentenceTransformer
 from word2vec_engine import Word2VecEmbedder
-from config import WORD2VEC_MODEL_PATH, SBERT_FINETUNED_PATH, SBERT_BASE_MODEL
+from config import WORD2VEC_MODEL_PATH, SBERT_MODEL
 
 class SimilarityBenchmarkEngine:
     def __init__(self):
@@ -14,8 +14,8 @@ class SimilarityBenchmarkEngine:
         # 2. Word2Vec
         self.w2v_embedder = Word2VecEmbedder(WORD2VEC_MODEL_PATH)
 
-        # 3. Pre-trained SBERT (all-MiniLM-L6-v2)
-        self.sbert_model = SentenceTransformer(SBERT_BASE_MODEL)
+        # 3. SBERT model (base or fine‑tuned) as configured
+        self.sbert_model = SentenceTransformer(SBERT_MODEL)
 
         # 4. Cross-Encoder Re-ranker
         from cross_encoder_reranker import CrossEncoderReranker
@@ -143,14 +143,14 @@ def align_passages(
 
         if norm_a == norm_b or lex_sim >= 0.85 or (eff_sim >= 0.98 and lex_sim >= 0.75):
             tier = "verbatim"
-        elif eff_sim >= 0.88 and lex_sim >= 0.50:
+        elif eff_sim >= 0.88 and lex_sim >= 0.45:
             tier = "light_paraphrase"
         elif eff_sim >= 0.80 and lex_sim < 0.45:
             tier = "structural_rewrite"
         elif eff_sim >= 0.60:
             tier = "heavy_paraphrase"
         else:
-            tier = "structural_rewrite"
+            tier = "no_match"
 
         matches.append(
             PassageMatch(
@@ -172,7 +172,8 @@ def document_level_summary(matches: list[PassageMatch], total_sentences_a: int) 
         "verbatim": 0,
         "light_paraphrase": 0,
         "heavy_paraphrase": 0,
-        "structural_rewrite": 0
+        "structural_rewrite": 0,
+        "no_match": 0
     }
     if total_sentences_a == 0:
         return {
@@ -189,7 +190,8 @@ def document_level_summary(matches: list[PassageMatch], total_sentences_a: int) 
         "verbatim": 0,
         "light_paraphrase": 0,
         "heavy_paraphrase": 0,
-        "structural_rewrite": 0
+        "structural_rewrite": 0,
+        "no_match": 0
     }
     avg_sim = 0.0
     if matches:

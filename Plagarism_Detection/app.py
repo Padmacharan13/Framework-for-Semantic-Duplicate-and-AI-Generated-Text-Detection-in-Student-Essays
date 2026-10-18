@@ -1,7 +1,7 @@
 """
 app.py
-Flask web server for the Semantic Duplicate, Paraphrase, and AI-Generated Text Detection web app.
-Loads SBERT (MPNet), Word2Vec, and spaCy models for multi-model baseline comparison.
+Flask web server for the Semantic Duplicate, Paraphrase, and Text Similarity Detection web app.
+Loads SBERT (MiniLM), Word2Vec, and spaCy models for multi-model baseline comparison.
 """
 
 from __future__ import annotations
