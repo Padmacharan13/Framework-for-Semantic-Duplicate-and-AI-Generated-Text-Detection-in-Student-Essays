@@ -72,4 +72,28 @@ DEMO_REPORT_HTML = RESULTS_DIR / "demo_report.html"
 
 # Evaluation Output
 EVAL_RESULTS_CSV = RESULTS_DIR / "evaluation_results.csv"
-EVAL_PLOT_PNG = RESULTS_DIR / "model_comparison_f1.png"
+EVAL_PLOT_PNG = RESULTS_DIR / "model_comparison_f1.png"
+
+# Essay-Level Data Paths (Stage 2)
+ESSAYS_DATA_DIR = DATA_DIR / "essays"
+AI_DETECTION_TRAIN_PATH = ESSAYS_DATA_DIR / "ai_detection_train.parquet"
+AI_DETECTION_VAL_PATH = ESSAYS_DATA_DIR / "ai_detection_validation.parquet"
+AI_DETECTION_TEST_PATH = ESSAYS_DATA_DIR / "ai_detection_test.parquet"
+DUPLICATE_PAIRS_TRAIN_PATH = ESSAYS_DATA_DIR / "duplicate_pairs_train.parquet"
+DUPLICATE_PAIRS_VAL_PATH = ESSAYS_DATA_DIR / "duplicate_pairs_validation.parquet"
+DUPLICATE_PAIRS_TEST_PATH = ESSAYS_DATA_DIR / "duplicate_pairs_test.parquet"
+
+# AI Detection Module (Stage 3)
+AI_DETECTOR_DIR = MODELS_DIR / "ai_detector"
+AI_DETECTOR_TRANSFORMER_PATH = AI_DETECTOR_DIR / "transformer"
+AI_DETECTOR_ENSEMBLE_PATH = AI_DETECTOR_DIR / "ensemble_meta_model.joblib"
+AI_DETECTOR_LM_NAME = "gpt2"
+AI_DETECTOR_TRANSFORMER_NAME = "distilroberta-base"
+AI_DETECTOR_FALLBACK_TRANSFORMER = "roberta-base"
+AI_DETECTOR_THRESHOLD = 0.5
+
+# Unified Framework (Stage 4)
+UNIFIED_FRAMEWORK_WEIGHTS = {
+    "semantic_duplicate": 0.5,
+    "ai_generated": 0.5,
+}
