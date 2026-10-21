@@ -110,11 +110,10 @@ def main() -> None:
     # Ensure detector points to freshly trained transformer
     ensemble._transformer = TransformerAIDetector(model_name_or_path=AI_DETECTOR_TRANSFORMER_PATH)
 
-    val_texts_thresh = val_df["text"].tolist()[:120]
-    val_labels_thresh = val_df["label"].tolist()[:120]
+    threshold_sample = val_df.sample(min(len(val_df), 120), random_state=RANDOM_SEED).reset_index(drop=True)
     learned_thresholds = fit_and_save_thresholds(
-        val_texts=val_texts_thresh,
-        val_labels=val_labels_thresh,
+        val_texts=threshold_sample["text"].tolist(),
+        val_labels=threshold_sample["label"].tolist(),
         feature_extractor=ensemble.feature_extractor,
     )
     print(f"  -> Learned dynamic thresholds: {learned_thresholds}")
@@ -131,8 +130,9 @@ def main() -> None:
 
     # 5. Evaluate on Split C (Held-Out Test Split)
     print("\n[5/5] Evaluating Calibrated Ensemble on Split C (Held-Out Test Set)...")
-    test_sample_size = min(len(test_df), 250)
-    test_eval_df = test_df.sample(test_sample_size, random_state=RANDOM_SEED).reset_index(drop=True)
+    # Evaluate the full held-out test split; do not report a small random
+    # subset as the test-set result.
+    test_eval_df = test_df.reset_index(drop=True)
 
     y_test = test_eval_df["label"].to_numpy()
     probs = ensemble.predict_proba(test_eval_df["text"].tolist())
