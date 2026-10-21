@@ -107,20 +107,38 @@ def align_passages(
 
     sim_matrix = np.dot(normed_a, normed_b.T)
 
+    if not -1.0 <= match_threshold <= 1.0:
+        raise ValueError("match_threshold must be between -1.0 and 1.0")
+
     matches: list[PassageMatch] = []
     pairs_to_rerank = []
     match_candidates = []
 
-    for i, sent_a in enumerate(sentences_a):
-        best_j = int(np.argmax(sim_matrix[i]))
-        best_sim = float(sim_matrix[i, best_j])
+    # Greedy one-to-one assignment prevents a single sentence in B from being
+    # counted as a match for multiple sentences in A.
+    candidate_indices = np.argwhere(sim_matrix >= match_threshold)
+    ranked_candidates = sorted(
+        ((float(sim_matrix[i, j]), int(i), int(j)) for i, j in candidate_indices),
+        key=lambda item: item[0],
+        reverse=True,
+    )
+    used_a: set[int] = set()
+    used_b: set[int] = set()
+    selected_pairs = []
+    for score, i, j in ranked_candidates:
+        if i in used_a or j in used_b:
+            continue
+        used_a.add(i)
+        used_b.add(j)
+        selected_pairs.append((i, j, score))
 
-        if best_sim >= match_threshold:
-            sent_b = sentences_b[best_j]
-            lex_sim = float(compute_lexical_similarity(sent_a, sent_b))
-            match_candidates.append((sent_a, sent_b, best_sim, lex_sim))
-            if cross_encoder is not None:
-                pairs_to_rerank.append((sent_a, sent_b))
+    selected_pairs.sort(key=lambda item: item[0])
+    for i, j, best_sim in selected_pairs:
+        sent_a, sent_b = sentences_a[i], sentences_b[j]
+        lex_sim = float(compute_lexical_similarity(sent_a, sent_b))
+        match_candidates.append((sent_a, sent_b, best_sim, lex_sim))
+        if cross_encoder is not None:
+            pairs_to_rerank.append((sent_a, sent_b))
 
     ce_scores = []
     if cross_encoder is not None and pairs_to_rerank:
@@ -167,44 +185,48 @@ def align_passages(
     return matches
 
 
-def document_level_summary(matches: list[PassageMatch], total_sentences_a: int) -> dict:
-    empty_tier_counts = {
-        "verbatim": 0,
-        "light_paraphrase": 0,
-        "heavy_paraphrase": 0,
-        "structural_rewrite": 0,
-        "no_match": 0
-    }
-    if total_sentences_a == 0:
-        return {
-            "overall_score": 0.0,
-            "matched_sentence_ratio": 0.0,
-            "flagged": False,
-            "tier_counts": empty_tier_counts
-        }
+def document_level_summary(
+    matches: list[PassageMatch],
+    total_sentences_a: int,
+    total_sentences_b: int | None = None,
+) -> dict:
+    """Summarize matches using coverage from both documents.
 
-    matched_count = len(matches)
-    ratio = matched_count / total_sentences_a
-
+    The original matched_sentence_ratio remains Document A coverage for API
+    compatibility. The additional B coverage and minimum-coverage aggregation
+    make the overall score symmetric to swapping the documents.
+    """
     tier_counts = {
         "verbatim": 0,
         "light_paraphrase": 0,
         "heavy_paraphrase": 0,
         "structural_rewrite": 0,
-        "no_match": 0
+        "no_match": 0,
     }
-    avg_sim = 0.0
-    if matches:
-        avg_sim = float(np.mean([m.semantic_similarity for m in matches]))
-        for m in matches:
-            tier_counts[m.tier] = tier_counts.get(m.tier, 0) + 1
+    total_sentences_b = total_sentences_b if total_sentences_b is not None else total_sentences_a
+    if total_sentences_a <= 0 or total_sentences_b <= 0:
+        return {
+            "overall_score": 0.0,
+            "matched_sentence_ratio": 0.0,
+            "matched_sentence_ratio_b": 0.0,
+            "flagged": False,
+            "tier_counts": tier_counts,
+        }
 
-    overall_score = float(round(avg_sim * ratio, 4))
-    flagged = bool(overall_score >= 0.35 or (matched_count > 0 and ratio >= 0.5))
+    matched_count = len(matches)
+    ratio_a = min(matched_count / total_sentences_a, 1.0)
+    ratio_b = min(matched_count / total_sentences_b, 1.0)
+    avg_sim = float(np.mean([m.semantic_similarity for m in matches])) if matches else 0.0
+    for match in matches:
+        tier_counts[match.tier] = tier_counts.get(match.tier, 0) + 1
 
+    coverage = min(ratio_a, ratio_b)
+    overall_score = float(round(avg_sim * coverage, 4))
+    flagged = bool(overall_score >= 0.35 or (matched_count > 0 and coverage >= 0.5))
     return {
         "overall_score": overall_score,
-        "matched_sentence_ratio": round(ratio, 4),
+        "matched_sentence_ratio": round(ratio_a, 4),
+        "matched_sentence_ratio_b": round(ratio_b, 4),
         "flagged": flagged,
-        "tier_counts": tier_counts
-    }
+        "tier_counts": tier_counts,
+    }

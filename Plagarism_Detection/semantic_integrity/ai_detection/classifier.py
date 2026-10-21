@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 import torch
@@ -114,7 +114,7 @@ class TransformerAIDetector:
     def is_checkpoint_trained(self) -> bool:
         """Check if current model points to an explicitly fine-tuned local checkpoint."""
         p = Path(self.model_name_or_path)
-        return p.exists() and (p / "model.safetensors").exists() or (p / "pytorch_model.bin").exists()
+        return p.is_dir() and ((p / "model.safetensors").is_file() or (p / "pytorch_model.bin").is_file())
 
     def predict_proba(
         self,
