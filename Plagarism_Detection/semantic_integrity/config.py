@@ -31,11 +31,16 @@ SBERT_BASE_MODEL = "all-MiniLM-L6-v2"
 # Prefer the fine‑tuned SBERT model if it has been saved under the models directory.
 # The fine‑tuned model is stored as a directory; if it exists we load it directly.
 
-if Path(SBERT_FINETUNED_PATH).exists():
+SBERT_REBUILT_PATH = MODELS_DIR / "sbert_finetuned_rebuilt_test"
+
+if SBERT_REBUILT_PATH.exists():
+    SBERT_MODEL = str(SBERT_REBUILT_PATH)
+elif SBERT_FINETUNED_PATH.exists():
     SBERT_MODEL = str(SBERT_FINETUNED_PATH)
 else:
     SBERT_MODEL = SBERT_BASE_MODEL
-CROSS_ENCODER_MODEL = "cross-encoder/quora-distilroberta-base"
+    
+CROSS_ENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 SPACY_MODEL = "en_core_web_sm"
 W2V_VECTOR_SIZE = 300
 W2V_WINDOW = 5
@@ -96,4 +101,4 @@ AI_DETECTOR_THRESHOLD = 0.5
 UNIFIED_FRAMEWORK_WEIGHTS = {
     "semantic_duplicate": 0.5,
     "ai_generated": 0.5,
-}
+}

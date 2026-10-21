@@ -1,0 +1,6 @@
+{
+  "sentence_ai_ppl": 19.56,
+  "sentence_human_ppl": 48.96,
+  "doc_ppl_cutoff": 18.82,
+  "doc_burst_cv_cutoff": 0.52
+}

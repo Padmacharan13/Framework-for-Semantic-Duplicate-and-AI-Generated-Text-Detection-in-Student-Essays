@@ -311,19 +311,47 @@ def detect_ai_authorship():
         return jsonify({"error": "AI-authorship detection failed. Check server logs."}), 500
 
 
+
 @app.route("/api/faiss/search", methods=["POST"])
 def faiss_search():
     try:
         prep, emb_sbert, emb_w2v, f_db, c_reranker = get_models()
-        data = request.get_json() or {}
-        query_text = data.get("query", "").strip()
-        top_k = int(data.get("top_k", 5))
-        rerank = bool(data.get("rerank", True))
+        data = request.get_json(silent=True) or {}
 
-        if not query_text:
+        query_text = data.get("query", "")
+        if not isinstance(query_text, str) or not query_text.strip():
             return jsonify({"error": "Query text cannot be empty."}), 400
 
-        candidates = f_db.search_candidates(query_text, emb_sbert, top_k=top_k)
+        query_text = query_text.strip()
+        try:
+            top_k = int(data.get("top_k", 5))
+            min_score = float(data.get("min_score", 0.0))
+        except (TypeError, ValueError):
+            return jsonify({
+                "error": "top_k must be an integer and min_score must be numeric."
+            }), 400
+
+        rerank_value = data.get("rerank", True)
+        if isinstance(rerank_value, bool):
+            rerank = rerank_value
+        else:
+            return jsonify({"error": "rerank must be true or false."}), 400
+
+        if top_k < 1:
+            return jsonify({"error": "top_k must be at least 1."}), 400
+
+        if not -1.0 <= min_score <= 1.0:
+            return jsonify({
+                "error": "min_score must be between -1.0 and 1.0."
+            }), 400
+
+        candidates = f_db.search_candidates(
+            query_text,
+            emb_sbert,
+            top_k=top_k,
+            min_score=min_score
+        )
+
         if rerank and candidates:
             candidates = c_reranker.rerank_candidates(query_text, candidates)
 
@@ -332,9 +360,11 @@ def faiss_search():
             "candidates": candidates,
             "reranked_with_cross_encoder": rerank
         })
+
     except Exception as e:
         logger.exception("FAISS search error")
         return jsonify({"error": str(e)}), 500
+
 
 
 @app.route("/api/corpus", methods=["GET"])

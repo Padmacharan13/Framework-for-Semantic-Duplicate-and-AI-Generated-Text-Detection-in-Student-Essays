@@ -311,7 +311,7 @@ class TransformerAIDetector:
 
             val_acc = 0.0
             if val_texts is not None and val_labels is not None:
-                preds = self.predict(val_texts)
+                preds = self.predict(val_texts, allow_untrained=True)
                 val_acc = float(np.mean(preds == np.array(val_labels)))
                 history["val_accuracy"].append(val_acc)
                 logger.info(

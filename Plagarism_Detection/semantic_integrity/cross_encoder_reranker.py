@@ -28,7 +28,10 @@ class CrossEncoderReranker:
         logger.info("Initializing Cross-Encoder model '%s'...", model_name)
         try:
             self.model_name = model_name
-            self.model = CrossEncoder(model_name)
+            self.model = CrossEncoder(
+    model_name,
+    tokenizer_args={"use_fast": False}
+)
             self.available = True
             logger.info("Cross-Encoder model '%s' loaded successfully.", model_name)
         except Exception as e:
