@@ -287,6 +287,30 @@ def analyze_documents():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/ai-detect", methods=["POST"])
+def detect_ai_authorship():
+    """Run the independent AI-authorship detector on a single essay."""
+    data = request.get_json(silent=True) or {}
+    text = data.get("text", "")
+    if not isinstance(text, str) or not text.strip():
+        return jsonify({"error": "A non-empty text string is required."}), 400
+
+    max_chars = int(os.environ.get("VERITEXT_MAX_DOCUMENT_CHARS", "200000"))
+    if len(text) > max_chars:
+        return jsonify({"error": f"Text must be at most {max_chars} characters."}), 413
+
+    try:
+        from semantic_integrity.ai_detection.ensemble import get_detector
+        result = get_detector().predict_essay(text.strip(), allow_untrained=False)
+        return jsonify(result)
+    except RuntimeError as exc:
+        # A missing/untrained model is a setup issue, not a negative AI result.
+        return jsonify({"error": str(exc), "code": "ai_detector_not_ready"}), 503
+    except Exception:
+        logger.exception("AI-authorship detection failed")
+        return jsonify({"error": "AI-authorship detection failed. Check server logs."}), 500
+
+
 @app.route("/api/faiss/search", methods=["POST"])
 def faiss_search():
     try:
