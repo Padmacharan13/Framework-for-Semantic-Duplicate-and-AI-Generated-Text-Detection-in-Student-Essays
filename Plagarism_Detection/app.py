@@ -98,11 +98,19 @@ def index():
 
 @app.route("/api/health", methods=["GET"])
 def health():
+    ready = preprocessor is not None and embedder is not None
     return jsonify({
-        "status": "healthy",
-        "models_ready": preprocessor is not None and embedder is not None and w2v_embedder is not None,
+        "status": "ready" if ready else "not_initialized",
+        "models_ready": ready,
+        "components_initialized": {
+            "preprocessor": preprocessor is not None,
+            "sbert": embedder is not None,
+            "word2vec": w2v_embedder is not None,
+            "faiss": faiss_db is not None,
+            "cross_encoder": cross_encoder is not None,
+        },
         "sbert_model": SBERT_MODEL
-    })
+    }), (200 if ready else 503)
 
 
 @app.route("/api/presets", methods=["GET"])
@@ -116,21 +124,33 @@ def analyze_documents():
         prep, emb_sbert, emb_w2v, f_db, c_reranker = get_models()
 
         if request.is_json:
-            data = request.get_json() or {}
-            doc_a_raw = data.get("doc_a", "").strip()
-            doc_b_raw = data.get("doc_b", "").strip()
-            threshold = float(data.get("threshold", 0.55))
-            model_type = data.get("model_type", "sbert").lower()
+            data = request.get_json(silent=True) or {}
+            doc_a_raw = data.get("doc_a", "")
+            doc_b_raw = data.get("doc_b", "")
+            threshold_value = data.get("threshold", 0.55)
+            model_type = str(data.get("model_type", "sbert")).lower()
         else:
-            doc_a_raw = request.form.get("doc_a", "").strip()
-            doc_b_raw = request.form.get("doc_b", "").strip()
-            threshold = float(request.form.get("threshold", 0.55))
-            model_type = request.form.get("model_type", "sbert").lower()
+            doc_a_raw = request.form.get("doc_a", "")
+            doc_b_raw = request.form.get("doc_b", "")
+            threshold_value = request.form.get("threshold", 0.55)
+            model_type = str(request.form.get("model_type", "sbert")).lower()
 
-            if "file_a" in request.files and request.files["file_a"].filename:
-                doc_a_raw = request.files["file_a"].read().decode("utf-8", errors="ignore").strip()
-            if "file_b" in request.files and request.files["file_b"].filename:
-                doc_b_raw = request.files["file_b"].read().decode("utf-8", errors="ignore").strip()
+        if not isinstance(doc_a_raw, str) or not isinstance(doc_b_raw, str):
+            return jsonify({"error": "Document inputs must be text strings."}), 400
+        doc_a_raw = doc_a_raw.strip()
+        doc_b_raw = doc_b_raw.strip()
+        try:
+            threshold = float(threshold_value)
+        except (TypeError, ValueError):
+            return jsonify({"error": "threshold must be a number between 0 and 1."}), 400
+        if not 0.0 <= threshold <= 1.0:
+            return jsonify({"error": "threshold must be between 0 and 1."}), 400
+
+        # Bound request size before invoking expensive NLP models.
+        max_chars = int(os.environ.get("VERITEXT_MAX_DOCUMENT_CHARS", "200000"))
+        if len(doc_a_raw) > max_chars or len(doc_b_raw) > max_chars:
+            return jsonify({"error": f"Each document must be at most {max_chars} characters."}), 413
+
 
         if not doc_a_raw or not doc_b_raw:
             return jsonify({"error": "Both Document A and Document B must contain text."}), 400
@@ -160,7 +180,11 @@ def analyze_documents():
 
         # Run passage alignment & tiering
         matches = align_passages(active_embedder, sentences_a, sentences_b, match_threshold=threshold, cross_encoder=active_ce)
-        summary = document_level_summary(matches, total_sentences_a=len(sentences_a))
+        summary = document_level_summary(
+            matches,
+            total_sentences_a=len(sentences_a),
+            total_sentences_b=len(sentences_b),
+        )
 
         # Build match mappings for frontend rendering
         matches_a_map = {}
@@ -233,6 +257,7 @@ def analyze_documents():
             "summary": {
                 "overall_score": summary["overall_score"],
                 "matched_sentence_ratio": summary["matched_sentence_ratio"],
+                "matched_sentence_ratio_b": summary["matched_sentence_ratio_b"],
                 "flagged": summary["flagged"],
                 "total_sentences_a": len(sentences_a),
                 "total_sentences_b": len(sentences_b),
