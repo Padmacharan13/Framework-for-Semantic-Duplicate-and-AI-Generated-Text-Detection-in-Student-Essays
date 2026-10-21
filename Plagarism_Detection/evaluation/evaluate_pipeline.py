@@ -169,7 +169,7 @@ def main():
                 writer.writeheader()
                 writer.writerows(metric_rows)
 
-            print("\\nRETRIEVAL METRICS (averaged over labelled queries)")
+            print("\nRETRIEVAL METRICS (averaged over labelled queries)")
             print("mode        K   Precision@K  Recall@K    MRR       nDCG@K")
 
             for mode in ("bi_encoder", "reranked"):
@@ -240,7 +240,7 @@ def main():
                 writer.writeheader()
                 writer.writerows(detail_rows)
 
-            print("\\nPAIR CLASSIFICATION (using hybrid_confidence)")
+            print("\nPAIR CLASSIFICATION (using hybrid_confidence)")
             print("These metrics are meaningful only if labels are human-reviewed ground truth.")
 
             report = classification_metrics(labels, hybrid_scores, args.threshold)
@@ -280,7 +280,7 @@ def main():
     else:
         print(f"No pair labels found at {pairs_path}; skipping pair classification metrics.")
 
-    print("\\nReminder: search relevance is not proof of plagiarism. Use human-reviewed labels,")
+    print("\nReminder: search relevance is not proof of plagiarism. Use human-reviewed labels,")
     print("separate validation/test sets, and report test metrics only after threshold tuning.")
 
 if __name__ == "__main__":
