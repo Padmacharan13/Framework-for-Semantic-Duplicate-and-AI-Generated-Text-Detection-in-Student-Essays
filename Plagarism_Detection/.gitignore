@@ -38,6 +38,8 @@ models/sbert_finetuned/
 models/faiss_index.bin
 models/faiss_metadata.json
 models/ai_detection/
+*.joblib
+models/*.joblib
 data/word2vec_paraphrase.model
 *.model
 *.model.wv.*

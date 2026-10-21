@@ -15,12 +15,18 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import joblib
 import numpy as np
+from sklearn.calibration import CalibratedClassifierCV, calibration_curve
 from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import brier_score_loss
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 from semantic_integrity.ai_detection.classifier import TransformerAIDetector
-from semantic_integrity.ai_detection.features import LMFeatureExtractor, split_into_sentences
+from semantic_integrity.ai_detection.features import (
+    LMFeatureExtractor,
+    load_learned_thresholds,
+    split_into_sentences,
+)
 from semantic_integrity.config import (
     AI_DETECTOR_DIR,
     AI_DETECTOR_ENSEMBLE_PATH,
@@ -49,9 +55,9 @@ def get_verdict(prob: float) -> Tuple[str, str]:
 
 class EnsembleAIDetector:
     """
-    Ensemble classifier combining:
+    Calibrated Ensemble classifier combining:
       1. GPT-2 Perplexity and Burstiness Features
-      2. RoBERTa Sequence Classification Probabilities
+      2. RoBERTa Sequence Classification Probabilities (Chunk-Averaged)
       3. Stylometric & Lexical Diversity Metrics
     """
 
@@ -80,7 +86,7 @@ class EnsembleAIDetector:
         # Lazy components
         self._feature_extractor: Optional[LMFeatureExtractor] = None
         self._transformer: Optional[TransformerAIDetector] = None
-        self.meta_pipeline: Optional[Pipeline] = None
+        self.meta_pipeline: Optional[Any] = None
 
         if self.meta_model_path.exists():
             try:
@@ -100,7 +106,15 @@ class EnsembleAIDetector:
             self._transformer = TransformerAIDetector()
         return self._transformer
 
-    def extract_combined_features(self, texts: Union[str, List[str]]) -> np.ndarray:
+    def is_trained(self) -> bool:
+        """Check if both the fine-tuned transformer and calibrated meta-model exist."""
+        return self.meta_pipeline is not None and self.transformer.is_checkpoint_trained()
+
+    def extract_combined_features(
+        self,
+        texts: Union[str, List[str]],
+        allow_untrained: bool = False,
+    ) -> np.ndarray:
         """
         Extract feature matrix of shape (N, num_features) combining transformer
         probabilities and LM perplexity/burstiness features.
@@ -111,11 +125,13 @@ class EnsembleAIDetector:
         if not texts:
             return np.empty((0, len(self.FEATURE_NAMES)), dtype=np.float32)
 
-        # 1. Transformer probabilities
+        # 1. Transformer probabilities (sliding-window chunk scored)
         try:
-            trans_probs = self.transformer.predict_proba(texts)[:, 1]
+            trans_probs = self.transformer.predict_proba(texts, allow_untrained=allow_untrained)[:, 1]
         except Exception as e:
-            logger.warning("Transformer prediction fallback: %s", e)
+            if not allow_untrained:
+                raise RuntimeError(f"Cannot extract ensemble features without trained transformer: {e}") from e
+            logger.warning("Transformer feature fallback: %s", e)
             trans_probs = np.full(len(texts), 0.5, dtype=np.float32)
 
         # 2. LM Features
@@ -141,18 +157,20 @@ class EnsembleAIDetector:
 
     def fit(
         self,
-        texts: List[str],
-        labels: List[int],
+        val_texts: List[str],
+        val_labels: List[int],
         save: bool = True,
+        calibration_method: str = "sigmoid",
     ) -> "EnsembleAIDetector":
         """
-        Fit the ensemble meta-classifier on texts and binary labels (0=human, 1=ai).
+        Fit the ensemble meta-classifier on Split B (validation texts & labels)
+        using Platt calibration (CalibratedClassifierCV with sigmoid).
         """
-        logger.info("Extracting ensemble features for %d samples...", len(texts))
-        X = self.extract_combined_features(texts)
-        y = np.array(labels, dtype=int)
+        logger.info("Extracting ensemble features for %d Split B samples...", len(val_texts))
+        X = self.extract_combined_features(val_texts, allow_untrained=False)
+        y = np.array(val_labels, dtype=int)
 
-        self.meta_pipeline = Pipeline([
+        base_pipeline = Pipeline([
             ("scaler", StandardScaler()),
             ("classifier", LogisticRegression(
                 C=1.0,
@@ -162,8 +180,19 @@ class EnsembleAIDetector:
             )),
         ])
 
-        self.meta_pipeline.fit(X, y)
-        logger.info("Ensemble meta-classifier successfully trained.")
+        # Platt scaling / Isotonic calibration
+        calibrated = CalibratedClassifierCV(
+            estimator=base_pipeline,
+            method=calibration_method,
+            cv=3,
+        )
+        calibrated.fit(X, y)
+        self.meta_pipeline = calibrated
+
+        # Calculate Brier calibration score on training split
+        probs = calibrated.predict_proba(X)[:, 1]
+        brier = float(brier_score_loss(y, probs))
+        logger.info("Ensemble meta-classifier successfully fitted. Brier score on validation: %.4f", brier)
 
         if save:
             self.save(self.meta_model_path)
@@ -186,7 +215,11 @@ class EnsembleAIDetector:
         self.meta_pipeline = joblib.load(target)
         logger.info("Loaded ensemble meta-model from %s", target)
 
-    def predict_proba(self, texts: Union[str, List[str]]) -> np.ndarray:
+    def predict_proba(
+        self,
+        texts: Union[str, List[str]],
+        allow_untrained: bool = False,
+    ) -> np.ndarray:
         """
         Compute calibrated AI probabilities.
         Returns array of shape (N, 2).
@@ -194,39 +227,30 @@ class EnsembleAIDetector:
         if isinstance(texts, str):
             texts = [texts]
 
-        X = self.extract_combined_features(texts)
+        if not self.is_trained():
+            if not allow_untrained:
+                raise RuntimeError(
+                    "EnsembleAIDetector is untrained or missing checkpoints. "
+                    "Run `python train_ai_detector.py` to train and calibrate the ensemble before predicting."
+                )
+            return np.full((len(texts), 2), 0.5, dtype=np.float32)
 
-        if self.meta_pipeline is not None:
-            return self.meta_pipeline.predict_proba(X)
-        else:
-            # Fallback heuristic weighting if meta-model not yet fitted
-            # Transformer prob is column 0, log_ppl is column 2, burstiness_cv is column 5
-            trans_p = X[:, 0]
-            # Low perplexity (< 30) and low burstiness (< 0.4) indicates AI
-            ppl = X[:, 1]
-            burst_cv = X[:, 5]
+        X = self.extract_combined_features(texts, allow_untrained=allow_untrained)
+        return self.meta_pipeline.predict_proba(X)
 
-            heuristic_ai_scores = []
-            for tp, p, b in zip(trans_p, ppl, burst_cv):
-                # PPL score: < 25 -> 0.8, > 60 -> 0.2
-                ppl_factor = max(0.0, min(1.0, 1.0 - (p / 80.0)))
-                # Burstiness score: low cv means AI
-                burst_factor = max(0.0, min(1.0, 1.0 - (b / 1.5)))
-                combined = 0.5 * tp + 0.3 * ppl_factor + 0.2 * burst_factor
-                heuristic_ai_scores.append(combined)
-
-            ai_probs = np.array(heuristic_ai_scores, dtype=np.float32)
-            human_probs = 1.0 - ai_probs
-            return np.column_stack([human_probs, ai_probs])
-
-    def predict_essay(self, text: str) -> Dict[str, Any]:
+    def predict_essay(
+        self,
+        text: str,
+        allow_untrained: bool = True,
+    ) -> Dict[str, Any]:
         """
         Main end-to-end prediction API for a single essay.
-        Returns comprehensive analysis with sentence-level highlights.
+        Returns comprehensive analysis with dynamically learned sentence-level highlights.
         """
         text = text.strip()
         if not text:
             return {
+                "mode": "empty",
                 "is_ai": False,
                 "ai_probability": 0.0,
                 "human_probability": 1.0,
@@ -238,26 +262,55 @@ class EnsembleAIDetector:
                 "explanation": "No text provided for analysis.",
             }
 
-        # 1. Ensemble probability
-        probs = self.predict_proba(text)[0]
+        if not self.is_trained():
+            if not allow_untrained:
+                raise RuntimeError(
+                    "EnsembleAIDetector has no fine-tuned transformer or meta-model checkpoint. "
+                    "Run `python train_ai_detector.py` to train the models."
+                )
+            # Return explicit mode="untrained" without silent arbitrary scores
+            return {
+                "mode": "untrained",
+                "is_ai": False,
+                "ai_probability": None,
+                "human_probability": None,
+                "confidence": 0.0,
+                "verdict": "Model Untrained",
+                "risk_level": "UNKNOWN",
+                "metrics": {},
+                "sentence_analysis": [],
+                "explanation": (
+                    "AI Detection models have not yet been fine-tuned on this environment. "
+                    "Please run `python train_ai_detector.py` to initialize weights and calibrate thresholds."
+                ),
+            }
+
+        # 1. Ensemble calibrated probability
+        probs = self.predict_proba(text, allow_untrained=False)[0]
         human_prob = float(probs[0])
         ai_prob = float(probs[1])
         is_ai = bool(ai_prob >= self.threshold)
         confidence = float(abs(ai_prob - 0.5) * 2.0)
         verdict, risk_level = get_verdict(ai_prob)
 
-        # 2. Extract metrics & sentence-level perplexities
+        # 2. Extract metrics & dynamic threshold tagging
         lm_features = self.feature_extractor.extract_features(text)
         sentence_details = self.feature_extractor.compute_sentence_perplexities(text)
+        thresholds = load_learned_thresholds()
+
+        sent_ai_thresh = thresholds.get("sentence_ai_ppl", 25.0)
+        sent_human_thresh = thresholds.get("sentence_human_ppl", 60.0)
+        doc_ppl_cutoff = thresholds.get("doc_ppl_cutoff", 35.0)
+        doc_burst_cutoff = thresholds.get("doc_burst_cv_cutoff", 0.45)
 
         # Sentence tagging for UI visualization
         sentence_analysis = []
         for item in sentence_details:
             s_ppl = item["perplexity"]
-            if s_ppl < 25.0:
+            if s_ppl < sent_ai_thresh:
                 s_status = "Likely AI"
                 s_color = "#f87171"  # red
-            elif s_ppl > 60.0:
+            elif s_ppl > sent_human_thresh:
                 s_status = "Likely Human"
                 s_color = "#4ade80"  # green
             else:
@@ -272,34 +325,35 @@ class EnsembleAIDetector:
                 "color": s_color,
             })
 
-        # 3. Generate explanatory rationale
+        # 3. Generate data-grounded rationale
         explanation_parts = []
-        if ai_prob >= 0.5:
+        if ai_prob >= self.threshold:
             explanation_parts.append(
-                f"The text exhibits characteristics typical of machine-generated essays (overall AI score: {ai_prob:.1%})."
+                f"The essay exhibits stylistic patterns strongly characteristic of machine generation (calibrated AI score: {ai_prob:.1%})."
             )
-            if lm_features["perplexity"] < 35.0:
+            if lm_features["perplexity"] < doc_ppl_cutoff:
                 explanation_parts.append(
-                    f"Overall perplexity is very low ({lm_features['perplexity']:.1f}), indicating high token predictability."
+                    f"Perplexity ({lm_features['perplexity']:.1f}) is below the validation threshold ({doc_ppl_cutoff:.1f}), showing high word predictability."
                 )
-            if lm_features["burstiness_cv"] < 0.45:
+            if lm_features["burstiness_cv"] < doc_burst_cutoff:
                 explanation_parts.append(
-                    f"Sentence burstiness is uniform (coefficient of variation {lm_features['burstiness_cv']:.2f}), lacking the stylistic cadence of human writing."
+                    f"Sentence burstiness ({lm_features['burstiness_cv']:.2f}) indicates synthetic structural uniformity."
                 )
         else:
             explanation_parts.append(
-                f"The text exhibits characteristics consistent with human authorship (human confidence: {human_prob:.1%})."
+                f"The text exhibits variance consistent with human authorship (human confidence: {human_prob:.1%})."
             )
-            if lm_features["perplexity"] >= 35.0:
+            if lm_features["perplexity"] >= doc_ppl_cutoff:
                 explanation_parts.append(
-                    f"Perplexity ({lm_features['perplexity']:.1f}) shows natural lexical variance."
+                    f"Perplexity ({lm_features['perplexity']:.1f}) shows natural human vocabulary diversity."
                 )
-            if lm_features["burstiness_cv"] >= 0.45:
+            if lm_features["burstiness_cv"] >= doc_burst_cutoff:
                 explanation_parts.append(
-                    f"Varied sentence structures and burstiness ({lm_features['burstiness_cv']:.2f}) reflect human composition patterns."
+                    f"Burstiness variance ({lm_features['burstiness_cv']:.2f}) reflects authentic cadence and rhythm."
                 )
 
         return {
+            "mode": "trained",
             "is_ai": is_ai,
             "ai_probability": round(ai_prob, 4),
             "human_probability": round(human_prob, 4),
@@ -313,6 +367,7 @@ class EnsembleAIDetector:
                 "lexical_diversity_ttr": round(lm_features["ttr"], 3),
                 "sentence_count": int(lm_features["sentence_count"]),
                 "avg_sentence_len": round(lm_features["sentence_len_mean"], 1),
+                "learned_thresholds": thresholds,
             },
             "sentence_analysis": sentence_analysis,
             "explanation": " ".join(explanation_parts),

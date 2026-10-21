@@ -1,8 +1,7 @@
 import pandas as pd
 import numpy as np
 from torch.utils.data import DataLoader
-from sentence_transformers import SentenceTransformer, InputExample
-from sentence_transformers.sentence_transformer import losses, evaluation
+from sentence_transformers import SentenceTransformer, InputExample, losses, evaluation
 from semantic_integrity.config import (
     MSRP_PROCESSED_PATH,
     QQP_PROCESSED_PATH,
@@ -14,18 +13,22 @@ from semantic_integrity.config import (
     WARMUP_RATIO
 )
 
+from semantic_integrity.data_loader import load_msrp, load_qqp, save_split_ids
+
 def load_data_split(split_name: str, positive_only: bool = False):
     examples = []
     val_s1, val_s2, val_scores = [], [], []
 
-    for path in [MSRP_PROCESSED_PATH, QQP_PROCESSED_PATH]:
+    for path, loader in [(MSRP_PROCESSED_PATH, load_msrp), (QQP_PROCESSED_PATH, load_qqp)]:
         if not path.exists():
-            continue
-        df = pd.read_parquet(path)
-        if "split" in df.columns:
-            sub_df = df[df["split"] == split_name]
+            df = loader()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            df.to_parquet(path, index=False)
         else:
-            sub_df = df
+            df = pd.read_parquet(path)
+
+        assert "split" in df.columns, f"Split column missing in {path}"
+        sub_df = df[df["split"] == split_name]
 
         col1 = "text1" if "text1" in sub_df.columns else "text_a"
         col2 = "text2" if "text2" in sub_df.columns else "text_b"

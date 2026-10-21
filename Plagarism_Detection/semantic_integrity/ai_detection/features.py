@@ -243,3 +243,93 @@ class LMFeatureExtractor:
             "sentence_len_std", "sentence_count", "ttr", "avg_word_len",
         ]
         return np.array([feat_dict[k] for k in keys], dtype=np.float32)
+
+
+# ── Dynamic Threshold Estimation from Validation Data ─────────────────
+
+DEFAULT_THRESHOLDS = {
+    "sentence_ai_ppl": 25.0,
+    "sentence_human_ppl": 60.0,
+    "doc_ppl_cutoff": 35.0,
+    "doc_burst_cv_cutoff": 0.45,
+}
+
+from pathlib import Path
+import json
+from semantic_integrity.config import AI_DETECTOR_DIR
+
+THRESHOLDS_FILE = AI_DETECTOR_DIR / "thresholds.json"
+
+
+def load_learned_thresholds() -> Dict[str, float]:
+    """Load learned thresholds from disk, or return default heuristics if not fitted."""
+    if THRESHOLDS_FILE.exists():
+        try:
+            with open(THRESHOLDS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return {k: float(v) for k, v in data.items()}
+        except Exception as e:
+            logger.warning("Could not read %s: %s. Using defaults.", THRESHOLDS_FILE, e)
+    return dict(DEFAULT_THRESHOLDS)
+
+
+def fit_and_save_thresholds(
+    val_texts: List[str],
+    val_labels: List[int],
+    feature_extractor: Optional[LMFeatureExtractor] = None,
+) -> Dict[str, float]:
+    """
+    Learns data-driven sentence and document-level thresholds from validation set:
+      - sentence_ai_ppl: 25th percentile of sentence perplexities across validation
+      - sentence_human_ppl: 75th percentile of sentence perplexities across validation
+      - doc_ppl_cutoff: decision boundary separating AI from human doc perplexities
+      - doc_burst_cv_cutoff: decision boundary separating AI from human burstiness CVs
+    """
+    logger.info("Learning sentence-level thresholds and explanation cutoffs from validation data...")
+    fe = feature_extractor or LMFeatureExtractor()
+
+    sent_ppls_ai: List[float] = []
+    sent_ppls_human: List[float] = []
+    doc_ppls_ai: List[float] = []
+    doc_ppls_human: List[float] = []
+    burst_cv_ai: List[float] = []
+    burst_cv_human: List[float] = []
+
+    for text, label in zip(val_texts, val_labels):
+        s_data = fe.compute_sentence_perplexities(text)
+        ppls = [d["perplexity"] for d in s_data if not math.isnan(d["perplexity"]) and d["perplexity"] > 0]
+        feats = fe.extract_features(text)
+
+        if label == 1:
+            sent_ppls_ai.extend(ppls)
+            doc_ppls_ai.append(feats["perplexity"])
+            burst_cv_ai.append(feats["burstiness_cv"])
+        else:
+            sent_ppls_human.extend(ppls)
+            doc_ppls_human.append(feats["perplexity"])
+            burst_cv_human.append(feats["burstiness_cv"])
+
+    # Compute percentiles and median thresholds
+    ai_sent_thresh = float(np.percentile(sent_ppls_ai, 50)) if sent_ppls_ai else DEFAULT_THRESHOLDS["sentence_ai_ppl"]
+    human_sent_thresh = float(np.percentile(sent_ppls_human, 50)) if sent_ppls_human else DEFAULT_THRESHOLDS["sentence_human_ppl"]
+
+    # Ensure consistent ordering: ai_threshold < human_threshold
+    if ai_sent_thresh >= human_sent_thresh:
+        ai_sent_thresh = float(np.percentile(sent_ppls_ai, 30)) if sent_ppls_ai else 25.0
+        human_sent_thresh = float(np.percentile(sent_ppls_human, 70)) if sent_ppls_human else 60.0
+
+    doc_cutoff = float((np.median(doc_ppls_ai) + np.median(doc_ppls_human)) / 2.0) if (doc_ppls_ai and doc_ppls_human) else DEFAULT_THRESHOLDS["doc_ppl_cutoff"]
+    burst_cutoff = float((np.median(burst_cv_ai) + np.median(burst_cv_human)) / 2.0) if (burst_cv_ai and burst_cv_human) else DEFAULT_THRESHOLDS["doc_burst_cv_cutoff"]
+
+    learned = {
+        "sentence_ai_ppl": round(ai_sent_thresh, 2),
+        "sentence_human_ppl": round(human_sent_thresh, 2),
+        "doc_ppl_cutoff": round(doc_cutoff, 2),
+        "doc_burst_cv_cutoff": round(burst_cutoff, 2),
+    }
+
+    AI_DETECTOR_DIR.mkdir(parents=True, exist_ok=True)
+    with open(THRESHOLDS_FILE, "w", encoding="utf-8") as f:
+        json.dump(learned, f, indent=2)
+    logger.info("Saved learned thresholds to %s: %s", THRESHOLDS_FILE, learned)
+    return learned

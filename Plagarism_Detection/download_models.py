@@ -1,12 +1,12 @@
 """
 download_models.py
-Downloads pre-trained model artifacts that are too large for git.
+Downloads and verifies pre-trained model artifacts and indices that are too large for git.
 
 Run:
     python download_models.py
 
-This script ensures all required model files are present locally.
-If models already exist, they are skipped.
+This script ensures all required model files, indices, and checkpoints are present locally.
+If artifacts already exist, they are validated and preserved.
 """
 
 from __future__ import annotations
@@ -53,6 +53,36 @@ def download_word2vec() -> None:
     )
 
 
+def verify_faiss_index() -> None:
+    """Verify or build FAISS vector index."""
+    from semantic_integrity.config import FAISS_INDEX_PATH, FAISS_METADATA_PATH, MSRP_PROCESSED_PATH
+    import pandas as pd
+
+    if FAISS_INDEX_PATH.exists() and FAISS_METADATA_PATH.exists():
+        logger.info("FAISS vector index and metadata exist at %s", FAISS_INDEX_PATH)
+        return
+
+    logger.info("FAISS index not found. Building index from processed MSRP corpus...")
+    try:
+        from semantic_integrity.faiss_engine import FAISSEngine
+        if MSRP_PROCESSED_PATH.exists():
+            df = pd.read_parquet(MSRP_PROCESSED_PATH)
+            col = "text1" if "text1" in df.columns else "text_a"
+            corpus = df[col].dropna().tolist()[:1000]
+        else:
+            corpus = [
+                "Sample text for plagiarism and duplicate detection.",
+                "Semantic similarity helps discover paraphrase variations.",
+                "Student essays must adhere to strict academic integrity standards.",
+            ]
+        engine = FAISSEngine()
+        engine.build_index(corpus)
+        engine.save_index(FAISS_INDEX_PATH, FAISS_METADATA_PATH)
+        logger.info("FAISS vector index created and saved successfully.")
+    except Exception as e:
+        logger.warning("Could not automatically build FAISS index: %s", e)
+
+
 def verify_spacy() -> None:
     """Verify that spaCy model is installed."""
     try:
@@ -66,11 +96,25 @@ def verify_spacy() -> None:
         )
 
 
+def verify_ai_detector() -> None:
+    """Verify presence of AI detector weights and ensemble checkpoints."""
+    from semantic_integrity.config import AI_DETECTOR_TRANSFORMER_PATH, AI_DETECTOR_ENSEMBLE_PATH
+    if AI_DETECTOR_TRANSFORMER_PATH.exists() and AI_DETECTOR_ENSEMBLE_PATH.exists():
+        logger.info("AI Detector checkpoints found at %s", AI_DETECTOR_TRANSFORMER_PATH)
+    else:
+        logger.info(
+            "AI Detector checkpoints not found. Run `python train_ai_detector.py` "
+            "to fine-tune the transformer and fit the calibrated ensemble meta-model."
+        )
+
+
 def main() -> None:
-    logger.info("=== Model Download / Verification ===")
+    logger.info("=== Model & Artifact Download / Verification ===")
     verify_spacy()
     download_sbert_finetuned()
     download_word2vec()
+    verify_faiss_index()
+    verify_ai_detector()
     logger.info("=== Done ===")
 
 

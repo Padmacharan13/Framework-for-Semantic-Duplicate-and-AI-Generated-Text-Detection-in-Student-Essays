@@ -111,9 +111,22 @@ class TransformerAIDetector:
         assert self._model is not None
         return self._model
 
-    def predict_proba(self, texts: Union[str, List[str]], batch_size: int = 16) -> np.ndarray:
+    def is_checkpoint_trained(self) -> bool:
+        """Check if current model points to an explicitly fine-tuned local checkpoint."""
+        p = Path(self.model_name_or_path)
+        return p.exists() and (p / "model.safetensors").exists() or (p / "pytorch_model.bin").exists()
+
+    def predict_proba(
+        self,
+        texts: Union[str, List[str]],
+        batch_size: int = 16,
+        allow_untrained: bool = False,
+        stride: int = 256,
+    ) -> np.ndarray:
         """
         Compute predicted probabilities for given text(s).
+        For essays exceeding max_length (512 tokens), applies sliding-window chunking
+        with logit averaging to score the full document.
         Returns array of shape (N, 2), where column 0 is P(Human) and column 1 is P(AI).
         """
         if isinstance(texts, str):
@@ -122,35 +135,78 @@ class TransformerAIDetector:
         if not texts:
             return np.empty((0, 2), dtype=np.float32)
 
+        if not allow_untrained and not self.is_checkpoint_trained():
+            raise RuntimeError(
+                f"TransformerAIDetector at '{self.model_name_or_path}' has a randomly initialized "
+                "classification head and has not been fine-tuned. Fine-tune the detector using "
+                "`python train_ai_detector.py` before running inference."
+            )
+
         self._load_model()
         self.model.eval()
 
         all_probs: List[np.ndarray] = []
 
         with torch.no_grad():
-            for i in range(0, len(texts), batch_size):
-                batch_texts = texts[i : i + batch_size]
-                encoded = self.tokenizer(
-                    batch_texts,
-                    padding=True,
-                    truncation=True,
-                    max_length=self.max_length,
-                    return_tensors="pt",
-                )
-                input_ids = encoded.input_ids.to(self.device)
-                attention_mask = encoded.attention_mask.to(self.device)
+            for text in texts:
+                text_str = str(text).strip()
+                if not text_str:
+                    all_probs.append(np.array([1.0, 0.0], dtype=np.float32))
+                    continue
 
-                logits = self.model(input_ids, attention_mask=attention_mask).logits
-                probs = torch.softmax(logits, dim=-1).cpu().numpy()
-                all_probs.append(probs)
+                # Tokenize full text without truncation to check length
+                encoded = self.tokenizer(
+                    text_str,
+                    add_special_tokens=True,
+                    return_tensors="pt",
+                    truncation=False,
+                )
+                input_ids = encoded.input_ids[0]
+                seq_len = len(input_ids)
+
+                if seq_len <= self.max_length:
+                    # Single chunk forward pass
+                    enc = self.tokenizer(
+                        text_str,
+                        padding=True,
+                        truncation=True,
+                        max_length=self.max_length,
+                        return_tensors="pt",
+                    )
+                    b_ids = enc.input_ids.to(self.device)
+                    b_mask = enc.attention_mask.to(self.device)
+                    logits = self.model(b_ids, attention_mask=b_mask).logits
+                    probs = torch.softmax(logits, dim=-1).cpu().numpy()[0]
+                    all_probs.append(probs)
+                else:
+                    # Sliding-window chunking with logit averaging
+                    chunk_logits: List[torch.Tensor] = []
+                    window_size = self.max_length
+                    step = max(64, stride)
+
+                    for start_idx in range(0, seq_len, step):
+                        end_idx = min(start_idx + window_size, seq_len)
+                        chunk_ids = input_ids[start_idx:end_idx].unsqueeze(0).to(self.device)
+                        chunk_mask = torch.ones_like(chunk_ids).to(self.device)
+
+                        logits = self.model(chunk_ids, attention_mask=chunk_mask).logits
+                        chunk_logits.append(logits)
+
+                        if end_idx == seq_len:
+                            break
+
+                    # Average logits across all chunks
+                    avg_logits = torch.mean(torch.cat(chunk_logits, dim=0), dim=0, keepdim=True)
+                    probs = torch.softmax(avg_logits, dim=-1).cpu().numpy()[0]
+                    all_probs.append(probs)
 
         return np.vstack(all_probs)
 
-    def predict(self, texts: Union[str, List[str]], threshold: float = 0.5) -> np.ndarray:
+    def predict(self, texts: Union[str, List[str]], threshold: float = 0.5, allow_untrained: bool = False) -> np.ndarray:
         """
         Predict binary labels (0 = Human, 1 = AI).
         """
-        probs = self.predict_proba(texts)[:, 1]
+        probs = self.predict_proba(texts, allow_untrained=allow_untrained)[:, 1]
         return (probs >= threshold).astype(int)
 
     def save(self, output_dir: Optional[Union[str, Path]] = None) -> Path:

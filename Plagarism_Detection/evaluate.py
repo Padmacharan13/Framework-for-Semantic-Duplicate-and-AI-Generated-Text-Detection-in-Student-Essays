@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score, roc_auc_score
 from semantic_integrity.config import MSRP_PROCESSED_PATH, QQP_PROCESSED_PATH, EVAL_RESULTS_CSV, EVAL_PLOT_PNG
+from semantic_integrity.data_loader import load_msrp, load_qqp
 from semantic_integrity.similarity_engine import SimilarityBenchmarkEngine
 
 def optimize_threshold(y_true: np.ndarray, scores: np.ndarray) -> float:
@@ -28,32 +29,15 @@ def evaluate_predictions(y_true: np.ndarray, scores: np.ndarray, threshold: floa
 def main():
     print("[1/4] Loading Validation and Test sets...")
 
-    # Always load fresh from HF to ensure label filtering is applied
-    from semantic_integrity.data_loader import load_msrp, load_qqp
-    from semantic_integrity.config import RANDOM_SEED
-    msrp_df = load_msrp()
-    qqp_df = load_qqp()
+    # Load fixed splits from processed parquet files or via data_loader
+    for p, loader in [(MSRP_PROCESSED_PATH, load_msrp), (QQP_PROCESSED_PATH, load_qqp)]:
+        if not p.exists():
+            df_tmp = loader()
+            p.parent.mkdir(parents=True, exist_ok=True)
+            df_tmp.to_parquet(p, index=False)
 
-    # Check if test splits have usable labeled rows after GLUE -1 filtering
-    msrp_test = msrp_df[msrp_df["split"] == "test"]
-    qqp_test = qqp_df[qqp_df["split"] == "test"]
-
-    if len(msrp_test) == 0 or len(qqp_test) == 0:
-        print("  -> GLUE test splits have hidden labels; carving test from train+validation (seed=%d)..." % RANDOM_SEED)
-        # Combine train+validation, then split 80/10/10
-        for name, src_df in [("msrp", msrp_df), ("qqp", qqp_df)]:
-            labeled = src_df[src_df["split"].isin(["train", "validation"])].copy()
-            labeled = labeled.sample(frac=1, random_state=RANDOM_SEED).reset_index(drop=True)
-            n = len(labeled)
-            n_val = max(1, int(n * 0.125))  # ~12.5% for val, ~12.5% for test
-            n_test = n_val
-            labeled.iloc[:n_test, labeled.columns.get_loc("split")] = "test"
-            labeled.iloc[n_test:n_test + n_val, labeled.columns.get_loc("split")] = "validation"
-            labeled.iloc[n_test + n_val:, labeled.columns.get_loc("split")] = "train"
-            if name == "msrp":
-                msrp_df = labeled
-            else:
-                qqp_df = labeled
+    msrp_df = pd.read_parquet(MSRP_PROCESSED_PATH)
+    qqp_df = pd.read_parquet(QQP_PROCESSED_PATH)
 
     val_df = pd.concat([
         msrp_df[msrp_df["split"] == "validation"],
@@ -64,7 +48,8 @@ def main():
         qqp_df[qqp_df["split"] == "test"]
     ], ignore_index=True)
 
-    print(f"  -> Validation pairs: {len(val_df)}, Test pairs: {len(test_df)}")
+    print(f"  -> Validation pairs: {len(val_df)} (MSRP: {(msrp_df['split']=='validation').sum()}, QQP: {(qqp_df['split']=='validation').sum()})")
+    print(f"  -> Held-Out Test pairs: {len(test_df)} (MSRP: {(msrp_df['split']=='test').sum()}, QQP: {(qqp_df['split']=='test').sum()})")
 
     col1_v = "text1" if "text1" in val_df.columns else "text_a"
     col2_v = "text2" if "text2" in val_df.columns else "text_b"
@@ -85,8 +70,8 @@ def main():
     results = []
     print("[3/4] Tuning thresholds on Validation Split & Evaluating on Held-Out Test Split...")
     for model_name, (scorer, model_type) in models.items():
+        print(f"\n--- Evaluating {model_name} ({model_type}) ---")
         try:
-            print(f"\n--- Evaluating {model_name} ({model_type}) ---")
             val_scores = scorer(val_df[col1_v].tolist(), val_df[col2_v].tolist())
             val_scores = np.clip(np.nan_to_num(val_scores, nan=0.0), 0.0, 1.0)
             best_t = optimize_threshold(val_df["label"].to_numpy(), val_scores)
@@ -97,19 +82,10 @@ def main():
             metrics["Model"] = model_name
             metrics["Type"] = model_type
             results.append(metrics)
-            print(f"  -> {model_name} evaluation complete. F1={metrics['F1-Score']:.4f}")
+            print(f"  -> {model_name} evaluation complete. Threshold={best_t:.3f}, F1={metrics['F1-Score']:.4f}, ROC-AUC={metrics['ROC-AUC']:.4f}")
         except Exception as e:
-            print(f"  -> WARNING: {model_name} evaluation failed: {e}")
-            results.append({
-                "Type": model_type,
-                "Model": model_name,
-                "Threshold": 0.0,
-                "Accuracy": 0.0,
-                "Precision": 0.0,
-                "Recall": 0.0,
-                "F1-Score": 0.0,
-                "ROC-AUC": 0.0,
-            })
+            print(f"  -> FATAL: {model_name} evaluation failed: {e}")
+            raise RuntimeError(f"Evaluation of {model_name} failed: {e}") from e
 
     res_df = pd.DataFrame(results)[["Type", "Model", "Threshold", "Accuracy", "Precision", "Recall", "F1-Score", "ROC-AUC"]]
     res_df.to_csv(EVAL_RESULTS_CSV, index=False)

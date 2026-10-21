@@ -49,9 +49,9 @@ def run() -> None:
     qqp_df = load_qqp()
     qqp_processed = preprocess_pair_dataframe(qqp_df, preprocessor)
     qqp_processed.to_parquet(QQP_PROCESSED_PATH, index=False)
-    logger.info("Saved processed QQP -> %s (%d rows)", QQP_PROCESSED_PATH, len(qqp_processed))
-
-    logger.info("Preprocessing pipeline complete.")
+    from semantic_integrity.data_loader import save_split_ids
+    save_split_ids(msrp_processed, qqp_processed)
+    logger.info("Preprocessing pipeline complete. Split IDs saved.")
 
 
 if __name__ == "__main__":
