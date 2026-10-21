@@ -81,6 +81,10 @@ The local run also reported pair classification at threshold 0.50:
 
 This is not accepted as final benchmark performance. The repository's `evaluation/README.md` explicitly states its starter labels are synthetic and not independently adjudicated real-world plagiarism labels. A perfect score on such a small constructed set may reflect the way examples and labels were generated. Do not claim 100% real-world plagiarism detection accuracy from this run.
 
+## 4.1 Scoring normalization fix under validation
+
+The `testing-validation-docs` branch makes MS MARCO Cross-Encoder logit normalization consistent: the same candidate logit is passed through the same sigmoid regardless of the other candidates in a batch. A regression test checks this invariant. The locally reported retrieval/classification metrics above were generated before this branch's normalization fix and must be rerun after the change; they must not be presented as the post-fix results.
+
 ## 5. Important evaluation caveats
 
 ### Relevance is not plagiarism
