@@ -65,8 +65,16 @@ class CrossEncoderReranker:
             if raw_scores.ndim > 1:
                 raw_scores = raw_scores[:, -1]  # Take last column (similarity/entailment)
 
-            # If model outputs logits (e.g. MS-MARCO), convert via sigmoid to [0, 1]
-            if raw_scores.ndim > 0 and (np.min(raw_scores) < -0.01 or np.max(raw_scores) > 1.01):
+            # MS MARCO Cross-Encoders emit ranking logits, not calibrated
+            # probabilities. Always apply the same sigmoid regardless of the
+            # other candidates in this batch, so a score is batch-independent.
+            if "ms-marco" in self.model_name.lower():
+                norm_scores = self._sigmoid(raw_scores)
+            # Other Cross-Encoders may return either probabilities or logits.
+            # Keep this compatibility heuristic for non-MS-MARCO models.
+            elif raw_scores.ndim > 0 and (
+                np.min(raw_scores) < -0.01 or np.max(raw_scores) > 1.01
+            ):
                 norm_scores = self._sigmoid(raw_scores)
             else:
                 norm_scores = np.clip(raw_scores, 0.0, 1.0)
