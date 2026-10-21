@@ -21,7 +21,7 @@ class LookupEmbedder:
 def test_alignment_does_not_reuse_document_b_sentence():
     embedder = LookupEmbedder({
         "a1": [1.0, 0.0],
-        "a2": [0.99, 0.01],
+        "a2": [0.7, 0.7],
         "b1": [1.0, 0.0],
         "b2": [0.0, 1.0],
     })
