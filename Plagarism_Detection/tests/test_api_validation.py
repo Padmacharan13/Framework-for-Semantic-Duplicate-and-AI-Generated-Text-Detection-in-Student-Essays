@@ -48,8 +48,12 @@ def _fake_models():
     )
 
 
+def _unexpected_model_load():
+    raise AssertionError("Models should not load for a request that fails validation.")
+
+
 def test_faiss_search_rejects_empty_query_without_model_load(monkeypatch):
-    monkeypatch.setattr(app_module, "get_models", _fake_models)
+    monkeypatch.setattr(app_module, "get_models", _unexpected_model_load)
     client = app_module.app.test_client()
 
     response = client.post("/api/faiss/search", json={"query": "   "})
@@ -59,7 +63,7 @@ def test_faiss_search_rejects_empty_query_without_model_load(monkeypatch):
 
 
 def test_faiss_search_rejects_non_string_query(monkeypatch):
-    monkeypatch.setattr(app_module, "get_models", _fake_models)
+    monkeypatch.setattr(app_module, "get_models", _unexpected_model_load)
     client = app_module.app.test_client()
 
     response = client.post("/api/faiss/search", json={"query": ["not", "text"]})
@@ -68,7 +72,7 @@ def test_faiss_search_rejects_non_string_query(monkeypatch):
 
 
 def test_faiss_search_rejects_invalid_top_k(monkeypatch):
-    monkeypatch.setattr(app_module, "get_models", _fake_models)
+    monkeypatch.setattr(app_module, "get_models", _unexpected_model_load)
     client = app_module.app.test_client()
 
     response = client.post(
@@ -80,7 +84,7 @@ def test_faiss_search_rejects_invalid_top_k(monkeypatch):
 
 
 def test_faiss_search_rejects_non_boolean_rerank(monkeypatch):
-    monkeypatch.setattr(app_module, "get_models", _fake_models)
+    monkeypatch.setattr(app_module, "get_models", _unexpected_model_load)
     client = app_module.app.test_client()
 
     response = client.post(
@@ -92,7 +96,7 @@ def test_faiss_search_rejects_non_boolean_rerank(monkeypatch):
 
 
 def test_faiss_search_rejects_out_of_range_min_score(monkeypatch):
-    monkeypatch.setattr(app_module, "get_models", _fake_models)
+    monkeypatch.setattr(app_module, "get_models", _unexpected_model_load)
     client = app_module.app.test_client()
 
     response = client.post(
@@ -142,7 +146,7 @@ def test_ai_detection_rejects_non_string_text(monkeypatch):
 
 
 def test_analyze_rejects_empty_document_before_processing(monkeypatch):
-    monkeypatch.setattr(app_module, "get_models", _fake_models)
+    monkeypatch.setattr(app_module, "get_models", _unexpected_model_load)
     client = app_module.app.test_client()
 
     response = client.post(
