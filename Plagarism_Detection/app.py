@@ -134,6 +134,10 @@ def analyze_documents():
             doc_b_raw = request.form.get("doc_b", "")
             threshold_value = request.form.get("threshold", 0.55)
             model_type = str(request.form.get("model_type", "sbert")).lower()
+            if "file_a" in request.files and request.files["file_a"].filename:
+                doc_a_raw = request.files["file_a"].read().decode("utf-8", errors="replace")
+            if "file_b" in request.files and request.files["file_b"].filename:
+                doc_b_raw = request.files["file_b"].read().decode("utf-8", errors="replace")
 
         if not isinstance(doc_a_raw, str) or not isinstance(doc_b_raw, str):
             return jsonify({"error": "Document inputs must be text strings."}), 400
