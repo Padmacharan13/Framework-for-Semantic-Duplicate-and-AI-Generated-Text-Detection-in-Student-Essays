@@ -4,10 +4,16 @@ Run from `Plagarism_Detection/`.
 
 ## A. Syntax and regression tests
 
+- [x] GitHub Actions compile check passed on the merged main commit.
+- [x] GitHub Actions regression suite passed: 15 tests passed in 6.23 seconds.
+- [ ] Re-run locally in the target Windows environment and retain the console output.
+
 ```powershell
 python -m compileall app.py semantic_integrity train_ai_detector.py tests
 pytest -q
 ```
+
+CI run: https://github.com/Padmacharan13/Framework-for-Semantic-Duplicate-and-AI-Generated-Text-Detection-in-Student-Essays/actions/runs/39713115875
 
 ## B. API smoke tests
 
