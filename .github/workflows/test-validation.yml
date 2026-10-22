@@ -1,0 +1,36 @@
+name: Test and validate
+
+on:
+  push:
+    branches: [main, testing-validation-docs]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PYTHONPATH: ${{ github.workspace }}/Plagarism_Detection
+    defaults:
+      run:
+        working-directory: Plagarism_Detection
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: Plagarism_Detection/requirements.txt
+      - name: Install project dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Install spaCy English model
+        run: python -m spacy download en_core_web_sm
+      - name: Compile project modules
+        run: python -m compileall -q app.py semantic_integrity train_ai_detector.py tests
+      - name: Run automated tests
+        run: pytest -q

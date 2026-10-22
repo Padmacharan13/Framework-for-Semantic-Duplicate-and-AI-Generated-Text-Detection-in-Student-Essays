@@ -121,8 +121,6 @@ def get_presets():
 @app.route("/api/analyze", methods=["POST"])
 def analyze_documents():
     try:
-        prep, emb_sbert, emb_w2v, f_db, c_reranker = get_models()
-
         if request.is_json:
             data = request.get_json(silent=True) or {}
             doc_a_raw = data.get("doc_a", "")
@@ -158,6 +156,9 @@ def analyze_documents():
 
         if not doc_a_raw or not doc_b_raw:
             return jsonify({"error": "Both Document A and Document B must contain text."}), 400
+
+        # Defer expensive model initialization until request input has passed validation.
+        prep, emb_sbert, emb_w2v, f_db, c_reranker = get_models()
 
         # Preprocess texts using spaCy
         proc_results = prep.process_column([doc_a_raw, doc_b_raw])
@@ -315,7 +316,6 @@ def detect_ai_authorship():
 @app.route("/api/faiss/search", methods=["POST"])
 def faiss_search():
     try:
-        prep, emb_sbert, emb_w2v, f_db, c_reranker = get_models()
         data = request.get_json(silent=True) or {}
 
         query_text = data.get("query", "")
@@ -344,6 +344,9 @@ def faiss_search():
             return jsonify({
                 "error": "min_score must be between -1.0 and 1.0."
             }), 400
+
+        # Load models only after all request parameters are validated.
+        prep, emb_sbert, emb_w2v, f_db, c_reranker = get_models()
 
         candidates = f_db.search_candidates(
             query_text,
