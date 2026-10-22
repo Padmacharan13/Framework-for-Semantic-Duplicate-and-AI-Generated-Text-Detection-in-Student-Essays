@@ -64,6 +64,9 @@
             <button type="button" class="tab-btn" id="tabBtnFaiss" data-target="faissView">
                 <i class="fa-solid fa-database"></i> FAISS Corpus Vector Search &amp; Re-ranking
             </button>
+            <button type="button" class="tab-btn" id="tabBtnAIDetect" data-target="aiDetectView">
+                <i class="fa-solid fa-wand-magic-sparkles"></i> AI Text Detection
+            </button>
         </div>
 
         <div id="pairwiseView" class="view-panel active">
@@ -496,6 +499,113 @@
                 </div>
             </section>
         </div> <!-- end #faissView -->
+
+        <!-- AI-Generated Text Detection View Panel -->
+        <div id="aiDetectView" class="view-panel" style="display: none;">
+            <section class="hero-banner ai-banner">
+                <div class="hero-content">
+                    <h2><i class="fa-solid fa-shield-halved"></i> AI-Generated Text Analysis</h2>
+                    <p>Analyze one essay using a transformer classifier and language/style features. This is a separate analysis from plagiarism similarity.</p>
+                </div>
+            </section>
+
+            <section class="editor-section">
+                <div class="editor-card">
+                    <div class="editor-card-header">
+                        <div class="card-title">
+                            <span class="doc-badge" style="background: var(--accent-violet); color: #fff;">AI TEXT</span>
+                            <h3>Enter Essay for AI-Authorship Analysis</h3>
+                        </div>
+                        <div class="editor-toolbar">
+                            <button type="button" class="tool-btn" id="aiDetectLoadSample">
+                                <i class="fa-solid fa-file-lines"></i> Load Sample
+                            </button>
+                            <button type="button" class="tool-btn" id="aiDetectClear">
+                                <i class="fa-solid fa-eraser"></i> Clear
+                            </button>
+                        </div>
+                    </div>
+                    <div class="editor-body">
+                        <textarea id="aiDetectText" rows="12" placeholder="Paste a single essay here for AI-generated-text analysis..." spellcheck="false" aria-describedby="aiDetectDisclaimer"></textarea>
+                    </div>
+                    <div class="editor-footer">
+                        <span id="aiDetectCharCount"><i class="fa-solid fa-font"></i> 0 characters</span>
+                        <span class="drop-hint">Submit one essay at a time</span>
+                    </div>
+                    <div class="ai-detection-actions">
+                        <button type="button" class="btn btn-primary" id="aiDetectBtn">
+                            <i class="fa-solid fa-magnifying-glass-chart"></i>
+                            <span>Analyze AI-Writing Signals</span>
+                            <div class="spinner" id="aiDetectSpinner"></div>
+                        </button>
+                    </div>
+                    <p class="ai-disclaimer" id="aiDetectDisclaimer">
+                        Important: this result is a probabilistic signal, not proof of authorship. Accuracy depends on the trained checkpoint and evaluation data.
+                    </p>
+                </div>
+            </section>
+
+            <div id="aiDetectStatus" class="ai-status-message hidden" role="status" aria-live="polite"></div>
+
+            <section class="results-section hidden" id="aiDetectResults">
+                <div class="verdict-banner ai-verdict-banner" id="aiDetectVerdictBanner">
+                    <div class="verdict-icon"><i class="fa-solid fa-microchip"></i></div>
+                    <div class="verdict-info">
+                        <h3 id="aiDetectVerdict">AI-detection result</h3>
+                        <p id="aiDetectExplanation"></p>
+                    </div>
+                    <div class="verdict-badge" id="aiDetectRisk">UNKNOWN</div>
+                </div>
+
+                <div class="metrics-grid ai-metrics-grid">
+                    <div class="metric-card">
+                        <div class="metric-header"><span>AI Score</span><i class="fa-solid fa-robot metric-icon"></i></div>
+                        <div class="metric-body"><h2 class="metric-number" id="aiDetectAIProb">—</h2></div>
+                        <div class="metric-footer">Model-estimated AI likelihood</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-header"><span>Human Score</span><i class="fa-solid fa-user metric-icon"></i></div>
+                        <div class="metric-body"><h2 class="metric-number" id="aiDetectHumanProb">—</h2></div>
+                        <div class="metric-footer">Model-estimated human likelihood</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-header"><span>Score Confidence</span><i class="fa-solid fa-chart-simple metric-icon"></i></div>
+                        <div class="metric-body"><h2 class="metric-number" id="aiDetectConfidence">—</h2></div>
+                        <div class="metric-footer">Distance from the 0.50 decision boundary</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-header"><span>Perplexity</span><i class="fa-solid fa-wave-square metric-icon"></i></div>
+                        <div class="metric-body"><h2 class="metric-number" id="aiDetectPerplexity">—</h2></div>
+                        <div class="metric-footer">GPT-2 text-predictability feature</div>
+                    </div>
+                </div>
+
+                <div class="section-card">
+                    <div class="section-card-header">
+                        <h3><i class="fa-solid fa-chart-line"></i> Writing-Style Signals</h3>
+                        <p class="subtitle">Numerical features used by the detector; none alone proves whether text is AI-written.</p>
+                    </div>
+                    <div class="section-card-body">
+                        <div class="ai-feature-grid">
+                            <div class="ai-feature-item"><span>Burstiness CV</span><strong id="aiDetectBurstiness">—</strong></div>
+                            <div class="ai-feature-item"><span>Lexical diversity (TTR)</span><strong id="aiDetectTTR">—</strong></div>
+                            <div class="ai-feature-item"><span>Sentence count</span><strong id="aiDetectSentenceCount">—</strong></div>
+                            <div class="ai-feature-item"><span>Average sentence length</span><strong id="aiDetectAvgSentence">—</strong></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section-card">
+                    <div class="section-card-header">
+                        <h3><i class="fa-solid fa-highlighter"></i> Sentence-Level Analysis</h3>
+                        <p class="subtitle">Perplexity-based indicators from the model. Treat them as clues, not definitive labels.</p>
+                    </div>
+                    <div class="section-card-body">
+                        <div id="aiDetectSentenceList" class="ai-sentence-list"></div>
+                    </div>
+                </div>
+            </section>
+        </div> <!-- end #aiDetectView -->
     </main>
 
     <!-- Footer -->
