@@ -450,30 +450,30 @@ document.addEventListener('DOMContentLoaded', () => {
         window.print();
     });
 
-    // --- 10. Navigation Tabs (Pairwise vs FAISS) ---
+    // --- 10. Navigation Tabs (Pairwise, FAISS, and AI Detection) ---
     const tabBtnPairwise = document.getElementById('tabBtnPairwise');
     const tabBtnFaiss = document.getElementById('tabBtnFaiss');
+    const tabBtnAIDetect = document.getElementById('tabBtnAIDetect');
     const pairwiseView = document.getElementById('pairwiseView');
     const faissView = document.getElementById('faissView');
+    const aiDetectView = document.getElementById('aiDetectView');
+
+    const tabViews = [
+        { key: 'pairwise', button: tabBtnPairwise, view: pairwiseView },
+        { key: 'faiss', button: tabBtnFaiss, view: faissView },
+        { key: 'aiDetect', button: tabBtnAIDetect, view: aiDetectView },
+    ];
 
     function switchTab(target) {
-        if (target === 'pairwise') {
-            tabBtnPairwise.classList.add('active');
-            tabBtnFaiss.classList.remove('active');
-            pairwiseView.style.display = 'block';
-            faissView.style.display = 'none';
-        } else {
-            tabBtnFaiss.classList.add('active');
-            tabBtnPairwise.classList.remove('active');
-            faissView.style.display = 'block';
-            pairwiseView.style.display = 'none';
-        }
+        tabViews.forEach(({ key, button, view }) => {
+            if (button) button.classList.toggle('active', key === target);
+            if (view) view.style.display = key === target ? 'block' : 'none';
+        });
     }
 
-    if (tabBtnPairwise && tabBtnFaiss) {
-        tabBtnPairwise.addEventListener('click', () => switchTab('pairwise'));
-        tabBtnFaiss.addEventListener('click', () => switchTab('faiss'));
-    }
+    if (tabBtnPairwise) tabBtnPairwise.addEventListener('click', () => switchTab('pairwise'));
+    if (tabBtnFaiss) tabBtnFaiss.addEventListener('click', () => switchTab('faiss'));
+    if (tabBtnAIDetect) tabBtnAIDetect.addEventListener('click', () => switchTab('aiDetect'));
 
     // --- 11. FAISS Corpus Search & Re-ranking Logic ---
     const faissQueryText = document.getElementById('faissQueryText');
@@ -658,6 +658,154 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             corpusGrid.appendChild(card);
+        });
+    }
+
+    // --- 12. AI-Generated Text Detection UI ---
+    const aiDetectText = document.getElementById('aiDetectText');
+    const aiDetectBtn = document.getElementById('aiDetectBtn');
+    const aiDetectSpinner = document.getElementById('aiDetectSpinner');
+    const aiDetectStatus = document.getElementById('aiDetectStatus');
+    const aiDetectResults = document.getElementById('aiDetectResults');
+    const aiDetectLoadSample = document.getElementById('aiDetectLoadSample');
+    const aiDetectClear = document.getElementById('aiDetectClear');
+    const aiDetectCharCount = document.getElementById('aiDetectCharCount');
+    const aiDetectSentenceList = document.getElementById('aiDetectSentenceList');
+
+    const aiDetectSample = `Renewable energy technologies have become increasingly important in modern society. Solar panels and wind turbines can reduce reliance on fossil fuels when supported by reliable energy storage. Governments and institutions are investing in these technologies to reduce emissions. However, adoption also depends on infrastructure, policy, and local economic conditions. A careful evaluation should consider both environmental benefits and practical limitations.`;
+
+    function showAIDetectStatus(message, kind = 'info') {
+        if (!aiDetectStatus) return;
+        aiDetectStatus.textContent = message;
+        aiDetectStatus.className = `ai-status-message ${kind}`;
+    }
+
+    function formatProbability(value) {
+        return typeof value === 'number' && Number.isFinite(value)
+            ? `${(value * 100).toFixed(1)}%`
+            : '—';
+    }
+
+    function setText(id, value) {
+        const element = document.getElementById(id);
+        if (element) element.textContent = value === null || value === undefined ? '—' : String(value);
+    }
+
+    if (aiDetectText && aiDetectCharCount) {
+        const updateAICharCount = () => {
+            aiDetectCharCount.innerHTML = `<i class="fa-solid fa-font"></i> ${aiDetectText.value.length.toLocaleString()} characters`;
+        };
+        aiDetectText.addEventListener('input', updateAICharCount);
+        updateAICharCount();
+    }
+
+    if (aiDetectLoadSample && aiDetectText) {
+        aiDetectLoadSample.addEventListener('click', () => {
+            aiDetectText.value = aiDetectSample;
+            aiDetectText.dispatchEvent(new Event('input'));
+            if (aiDetectStatus) aiDetectStatus.classList.add('hidden');
+            if (aiDetectResults) aiDetectResults.classList.add('hidden');
+        });
+    }
+
+    if (aiDetectClear && aiDetectText) {
+        aiDetectClear.addEventListener('click', () => {
+            aiDetectText.value = '';
+            aiDetectText.dispatchEvent(new Event('input'));
+            if (aiDetectStatus) aiDetectStatus.classList.add('hidden');
+            if (aiDetectResults) aiDetectResults.classList.add('hidden');
+            aiDetectText.focus();
+        });
+    }
+
+    if (aiDetectBtn && aiDetectText) {
+        aiDetectBtn.addEventListener('click', async () => {
+            const text = aiDetectText.value.trim();
+            if (!text) {
+                showAIDetectStatus('Please paste an essay or load the sample before analysis.', 'error');
+                return;
+            }
+
+            aiDetectBtn.disabled = true;
+            if (aiDetectSpinner) aiDetectSpinner.style.display = 'inline-block';
+            if (aiDetectResults) aiDetectResults.classList.add('hidden');
+            showAIDetectStatus('Analyzing text. The transformer and language-model features may take a little time on the first request.', 'info');
+
+            try {
+                const response = await fetch('/api/ai-detect', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text })
+                });
+
+                let result;
+                try {
+                    result = await response.json();
+                } catch (_) {
+                    throw new Error(`Server returned HTTP ${response.status} without a readable JSON response.`);
+                }
+
+                if (!response.ok) {
+                    const detail = result.error || 'AI detection request failed.';
+                    if (response.status === 503) {
+                        throw new Error(`AI detector is not ready. ${detail}`);
+                    }
+                    throw new Error(detail);
+                }
+
+                setText('aiDetectVerdict', result.verdict || (result.is_ai ? 'Likely AI-generated' : 'Likely human-authored'));
+                setText('aiDetectRisk', result.risk_level || 'UNKNOWN');
+                setText('aiDetectExplanation', result.explanation || 'No explanation was returned.');
+                setText('aiDetectAIProb', formatProbability(result.ai_probability));
+                setText('aiDetectHumanProb', formatProbability(result.human_probability));
+                setText('aiDetectConfidence', formatProbability(result.confidence));
+                const metrics = result.metrics || {};
+                setText('aiDetectPerplexity', metrics.perplexity ?? '—');
+                setText('aiDetectBurstiness', metrics.burstiness_cv ?? '—');
+                setText('aiDetectTTR', metrics.lexical_diversity_ttr ?? '—');
+                setText('aiDetectSentenceCount', metrics.sentence_count ?? '—');
+                setText('aiDetectAvgSentence', metrics.avg_sentence_len ?? '—');
+
+                if (aiDetectSentenceList) {
+                    aiDetectSentenceList.replaceChildren();
+                    const sentences = Array.isArray(result.sentence_analysis) ? result.sentence_analysis : [];
+                    if (!sentences.length) {
+                        const empty = document.createElement('p');
+                        empty.className = 'subtitle';
+                        empty.textContent = 'No sentence-level analysis was returned.';
+                        aiDetectSentenceList.appendChild(empty);
+                    } else {
+                        sentences.forEach(item => {
+                            const card = document.createElement('article');
+                            card.className = 'ai-sentence-item';
+                            const top = document.createElement('div');
+                            top.className = 'ai-sentence-top';
+                            const status = document.createElement('span');
+                            status.className = 'ai-sentence-status';
+                            status.textContent = item.status || 'Unclassified';
+                            const details = document.createElement('span');
+                            details.textContent = `Perplexity: ${item.perplexity ?? '—'} · Words: ${item.word_count ?? '—'}`;
+                            const sentence = document.createElement('p');
+                            sentence.textContent = item.sentence || '';
+                            top.append(status, details);
+                            card.append(top, sentence);
+                            aiDetectSentenceList.appendChild(card);
+                        });
+                    }
+                }
+
+                if (aiDetectResults) aiDetectResults.classList.remove('hidden');
+                if (result.mode === 'trained') {
+                    showAIDetectStatus('Analysis completed. Treat this as a model-estimated signal, not proof of authorship.', 'success');
+                } else {
+                    showAIDetectStatus('The endpoint returned a result, but the model reports that it is not fully trained. Do not rely on these scores.', 'error');
+                }
+            } catch (error) {
+                showAIDetectStatus(error.message || 'AI detection failed. Check the Flask server logs.', 'error');
+            } finally {
+                aiDetectBtn.disabled = false;
+                if (aiDetectSpinner) aiDetectSpinner.style.display = 'none';
+            }
         });
     }
 });
