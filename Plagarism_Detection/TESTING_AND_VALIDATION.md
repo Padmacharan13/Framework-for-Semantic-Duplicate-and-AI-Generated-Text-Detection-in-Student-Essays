@@ -2,7 +2,7 @@
 
 **Project:** Framework for Semantic Duplicate and AI-Generated Text Detection in Student Essays  
 **Application directory:** `Plagarism_Detection/`  
-**Report status:** Test plan and currently reported exploratory results; complete held-out validation is still pending.
+**Report status:** Automated compilation and regression suite passed in GitHub Actions; independent held-out model-quality validation is still a separate research requirement.
 
 ## 1. Scope
 
@@ -81,9 +81,19 @@ The local run also reported pair classification at threshold 0.50:
 
 This is not accepted as final benchmark performance. The repository's `evaluation/README.md` explicitly states its starter labels are synthetic and not independently adjudicated real-world plagiarism labels. A perfect score on such a small constructed set may reflect the way examples and labels were generated. Do not claim 100% real-world plagiarism detection accuracy from this run.
 
-## 4.1 Scoring normalization fix under validation
+## 4.1 Cross-Encoder score normalization fix and CI result
 
-The `testing-validation-docs` branch makes MS MARCO Cross-Encoder logit normalization consistent: the same candidate logit is passed through the same sigmoid regardless of the other candidates in a batch. A regression test checks this invariant. The locally reported retrieval/classification metrics above were generated before this branch's normalization fix and must be rerun after the change; they must not be presented as the post-fix results.
+The merged change makes MS MARCO Cross-Encoder logit normalization consistent: a given raw ranking logit is passed through the same sigmoid regardless of the other candidates in a batch. A regression test checks this invariant.
+
+GitHub Actions completed successfully on the merged main commit:
+- Dependency installation: passed.
+- spaCy English model installation: passed.
+- Python compile check: passed.
+- Automated test suite: **15 passed in 6.23 seconds**.
+
+Run: https://github.com/Padmacharan13/Framework-for-Semantic-Duplicate-and-AI-Generated-Text-Detection-in-Student-Essays/actions/runs/39713115875
+
+The previously reported retrieval and pair-classification metrics were generated before this normalization fix. They should be treated as pre-fix exploratory results unless the evaluation is rerun against the merged code. CI success verifies syntax and the regression tests, not held-out model accuracy or production-scale performance.
 
 ## 5. Important evaluation caveats
 
@@ -118,4 +128,4 @@ AI-generated-text detection is not the same as semantic duplicate/plagiarism det
 
 ## 7. Test outcome status
 
-This document does not claim all checks passed. Source review and the locally reported retrieval output are available; live model evaluation, the newly added test suite, independent annotation, deployment-scale performance, and held-out validation must be executed in the intended local environment before the project is described as fully validated.
+The automated CI compile check and regression suite have passed. The locally reported retrieval output remains exploratory; independent annotation, held-out model-quality validation, deployment-scale performance measurement, and the post-fix rerun of retrieval/classification metrics are not evidenced by the CI run. Record the actual local run output before marking those items complete.
