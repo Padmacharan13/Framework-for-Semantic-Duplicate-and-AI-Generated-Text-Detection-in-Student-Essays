@@ -1147,7 +1147,143 @@ body {
     }
 }
 
-/* ==========================================================================
+/* ==================================/* ==========================================================================
+   AI-Generated Text Detection View
+   ========================================================================== */
+
+.ai-banner {
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.17) 0%, rgba(59, 130, 246, 0.10) 100%);
+    border: 1px solid rgba(139, 92, 246, 0.35);
+}
+
+.ai-detection-actions {
+    display: flex;
+    justify-content: flex-end;
+    padding: 16px 20px 8px;
+}
+
+.ai-disclaimer {
+    margin: 0 20px 20px;
+    color: var(--text-muted);
+    font-size: 0.84rem;
+    line-height: 1.55;
+}
+
+.ai-status-message {
+    margin: 0 0 22px;
+    padding: 14px 16px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    line-height: 1.55;
+    overflow-wrap: anywhere;
+}
+
+.ai-status-message.info {
+    border-color: rgba(59, 130, 246, 0.45);
+}
+
+.ai-status-message.success {
+    border-color: rgba(16, 185, 129, 0.55);
+    color: var(--text-primary);
+}
+
+.ai-status-message.error {
+    border-color: rgba(239, 68, 68, 0.65);
+    color: var(--text-primary);
+}
+
+.ai-verdict-banner {
+    margin-bottom: 20px;
+}
+
+.ai-metrics-grid .metric-number {
+    font-size: 1.8rem;
+    overflow-wrap: anywhere;
+}
+
+.ai-feature-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.ai-feature-item {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 14px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--bg-card);
+}
+
+.ai-feature-item span {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+.ai-feature-item strong {
+    color: var(--text-primary);
+    font-size: 1.15rem;
+    overflow-wrap: anywhere;
+}
+
+.ai-sentence-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.ai-sentence-item {
+    padding: 14px 16px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--bg-card);
+}
+
+.ai-sentence-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 8px;
+    color: var(--text-muted);
+    font-size: 0.82rem;
+}
+
+.ai-sentence-status {
+    color: var(--text-primary);
+    font-weight: 700;
+}
+
+.ai-sentence-item p {
+    color: var(--text-secondary);
+    line-height: 1.65;
+    overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+    .nav-tabs-bar {
+        flex-wrap: wrap;
+    }
+
+    .ai-feature-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .ai-detection-actions {
+        justify-content: stretch;
+    }
+
+    .ai-detection-actions .btn {
+        width: 100%;
+    }
+}
+
+========================================
    Navigation Tabs & FAISS Corpus Search Styles
    ========================================================================== */
 
